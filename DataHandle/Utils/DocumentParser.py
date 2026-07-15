@@ -134,7 +134,7 @@ class DocumentParser:
         elif ext == ".docx":
             return self._docx(path)
 
-        elif ext in [".txt", ".md"]:
+        elif ext in [".txt", ".md", ".py"]:
             return self._text(path)
 
         raise Exception(f"Unsupported file type: {ext}")

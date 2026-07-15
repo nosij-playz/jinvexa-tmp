@@ -1,10 +1,11 @@
-from Utils.YouTubeTranscript import YouTubeTranscript
+import json
 
-yt = YouTubeTranscript()
+from DataHandle.Utils.DataExtractor import DataExtract
 
-url = input("Enter YouTube URL: ")
+extractor = DataExtract()
 
-result = yt.transcribe(url)
+source = input("Enter URL or File Path: ")
 
+result = extractor.extract(source)
 
-print(result["full_text"])
+print(json.dumps(result, indent=4, ensure_ascii=False))
