@@ -252,6 +252,22 @@ class JinvexaApp:
             result = self.data_extractor.extract(source)
             source_type = result.get('type', 'unknown')
             print(f"✅ Type: {source_type}")
+            
+            # Check if there was an error
+            if result.get('error'):
+                print(f"⚠️  Warning: {result['error']}")
+            
+            # Show preview of extracted content
+            data = result.get('data', {})
+            if isinstance(data, dict):
+                content = data.get('content', '')
+                if isinstance(content, str) and len(content) > 0:
+                    preview = content[:300] + "..." if len(content) > 300 else content
+                    print(f"\n📄 Content preview:\n{preview}\n")
+            elif isinstance(data, str):
+                preview = data[:300] + "..." if len(data) > 300 else data
+                print(f"\n📄 Content preview:\n{preview}\n")
+                
         except Exception as e:
             print(f"❌ Extraction failed: {e}")
             return
@@ -286,6 +302,8 @@ class JinvexaApp:
             
         except Exception as e:
             print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def _continue_conversation(self, session_id: str):
         """Continue an existing conversation"""

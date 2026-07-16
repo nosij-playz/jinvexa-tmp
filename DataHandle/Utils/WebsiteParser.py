@@ -1,7 +1,9 @@
+# D:\Jinvexa\DataHandle\Utils\WebsiteParser.py
+
 import asyncio
 import logging
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from bs4 import BeautifulSoup
 import trafilatura
@@ -10,6 +12,7 @@ from playwright.async_api import async_playwright
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class WebsiteParser:
     """
@@ -39,20 +42,15 @@ class WebsiteParser:
     def parse(self, url: str) -> Dict[str, Any]:
         """
         Synchronous wrapper for the asynchronous parsing logic.
-        Maintains compatibility with existing calls.
         """
         try:
-            # Attempt to get the current event loop
+            # Try to run async
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None
 
             if loop and loop.is_running():
-                # If a loop is already running, we can't use asyncio.run()
-                # In a real production app, you'd use a library like nest_asyncio
-                # or make the whole chain async. For this CLI tool, we'll try to
-                # run it in a new thread or just use a synchronous wrapper.
                 import threading
                 from concurrent.futures import ThreadPoolExecutor
 
@@ -72,6 +70,7 @@ class WebsiteParser:
         """
         The core asynchronous pipeline for parsing a website.
         """
+        browser = None
         try:
             async with async_playwright() as p:
                 # 1. Playwright: Render the page
@@ -85,15 +84,16 @@ class WebsiteParser:
                     # Navigate and wait until network is idle
                     await page.goto(url, wait_until="networkidle", timeout=30000)
                 except Exception as e:
-                    await browser.close()
+                    if browser:
+                        await browser.close()
                     return {"status": "error", "message": f"Navigation failed: {str(e)}"}
 
                 html_content = await page.content()
                 await browser.close()
+                browser = None
 
                 # 2. Verification Detection
-                # Search for markers in the rendered HTML
-                content_lower = html_content.lower()
+                content_lower = html_content.lower() if html_content else ""
                 for pattern in self.verification_patterns:
                     if re.search(pattern, content_lower):
                         return {
@@ -102,96 +102,128 @@ class WebsiteParser:
                             "message": "Please upload a screenshot or PDF of this page."
                         }
 
-                # 3. Trafilatura: Extract clean main content (full_text)
-                # We use the rendered HTML content
-                full_text = trafilatura.extract(html_content) or ""
-
-                # 4. BeautifulSoup: Extract structured elements
+                # 3. BeautifulSoup: Parse HTML
                 soup = BeautifulSoup(html_content, "html.parser")
 
-                # Cleaning: Remove unwanted tags
+                # 4. Trafilatura: Extract clean main content (full_text)
+                full_text = ""
+                try:
+                    extracted = trafilatura.extract(html_content)
+                    if extracted:
+                        full_text = extracted
+                except Exception as e:
+                    logger.warning(f"Trafilatura extraction failed: {e}")
+
+                # If trafilatura failed, try to get text from BeautifulSoup
+                if not full_text:
+                    # Remove unwanted tags
+                    for tag in soup.find_all(self.tags_to_remove):
+                        tag.decompose()
+                    full_text = soup.get_text(separator="\n", strip=True)
+
+                # 5. Clean and extract structured elements
+                # Remove unwanted tags for structured extraction
                 for tag in soup.find_all(self.tags_to_remove):
                     tag.decompose()
 
                 # Further cleaning: Remove elements with ad-related classes or IDs
                 for element in soup.find_all(True):
-                    class_list = element.get("class", [])
-                    id_val = element.get("id", "")
-                    if any("ad-" in str(c).lower() or "sponsored" in str(c).lower() for c in class_list) or \
-                       ("ad-" in id_val.lower() or "sponsored" in id_val.lower()):
-                        element.decompose()
+                    try:
+                        class_list = element.get("class", [])
+                        id_val = element.get("id", "")
+                        if any("ad-" in str(c).lower() or "sponsored" in str(c).lower() for c in class_list) or \
+                           ("ad-" in id_val.lower() or "sponsored" in id_val.lower()):
+                            element.decompose()
+                    except:
+                        continue
 
                 # Extraction
                 title = ""
-                if soup.title:
-                    title = soup.title.get_text(strip=True)
-                elif soup.find("h1"):
-                    title = soup.find("h1").get_text(strip=True)
+                try:
+                    if soup.title:
+                        title = soup.title.get_text(strip=True)
+                    elif soup.find("h1"):
+                        title = soup.find("h1").get_text(strip=True)
+                except:
+                    title = url
 
                 description = ""
-                meta_desc = soup.find("meta", attrs={"name": "description"})
-                if meta_desc:
-                    description = meta_desc.get("content", "").strip()
+                try:
+                    meta_desc = soup.find("meta", attrs={"name": "description"})
+                    if meta_desc:
+                        description = meta_desc.get("content", "").strip()
+                except:
+                    pass
 
                 headings = []
-                for h_tag in ["h1", "h2", "h3"]:
-                    for h in soup.find_all(h_tag):
-                        text = h.get_text(" ", strip=True)
-                        if text:
-                            headings.append(text)
+                try:
+                    for h_tag in ["h1", "h2", "h3"]:
+                        for h in soup.find_all(h_tag):
+                            text = h.get_text(" ", strip=True)
+                            if text:
+                                headings.append(text)
+                except:
+                    pass
 
                 paragraphs = []
-                for p in soup.find_all("p"):
-                    text = p.get_text(" ", strip=True)
-                    if text:
-                        paragraphs.append(text)
+                try:
+                    for p in soup.find_all("p"):
+                        text = p.get_text(" ", strip=True)
+                        if text:
+                            paragraphs.append(text)
+                except:
+                    pass
 
                 links = []
-                for a in soup.find_all("a", href=True):
-                    links.append({
-                        "text": a.get_text(strip=True),
-                        "url": a["href"]
-                    })
+                try:
+                    for a in soup.find_all("a", href=True):
+                        text = a.get_text(strip=True)
+                        href = a["href"]
+                        if text and href:
+                            links.append({
+                                "text": text[:100] if text else "",
+                                "url": href
+                            })
+                except:
+                    pass
 
-                images = []
-                for img in soup.find_all("img", src=True):
-                    images.append({
-                        "alt": img.get("alt", "").strip(),
-                        "url": img["src"]
-                    })
+                # If we have very little content, try to extract more from the page
+                if len(paragraphs) < 3 and full_text:
+                    # Use full_text as content
+                    pass
 
-                tables = []
-                for table in soup.find_all("table"):
-                    table_data = []
-                    rows = table.find_all("tr")
-                    for row in rows:
-                        cols = [col.get_text(" ", strip=True) for col in row.find_all(["td", "th"])]
-                        if cols:
-                            table_data.append(cols)
-                    if table_data:
-                        tables.append(table_data)
-
-                # Metadata (buttons and forms)
-                metadata = {
-                    "buttons": [b.get_text(strip=True) for b in soup.find_all("button") if b.get_text(strip=True)],
-                    "forms": len(soup.find_all("form"))
-                }
+                # Build fallback content
+                if not title and not description and not paragraphs:
+                    # Get all visible text
+                    for script in soup(["script", "style"]):
+                        script.decompose()
+                    text = soup.get_text(separator="\n", strip=True)
+                    lines = [line.strip() for line in text.splitlines() if line.strip()]
+                    paragraphs = lines[:20] if lines else ["No content extracted"]
 
                 return {
                     "status": "success",
-                    "title": title,
-                    "description": description,
-                    "headings": headings,
-                    "paragraphs": paragraphs,
-                    "links": links,
-                    "images": images,
-                    "tables": tables,
-                    "metadata": metadata,
-                    "full_text": full_text
+                    "title": title or "Untitled",
+                    "description": description or "",
+                    "headings": headings[:20] if headings else [],
+                    "paragraphs": paragraphs[:30] if paragraphs else [],
+                    "links": links[:20] if links else [],
+                    "images": [],
+                    "tables": [],
+                    "metadata": {
+                        "buttons": [],
+                        "forms": 0
+                    },
+                    "full_text": full_text[:10000] if full_text else ""  # Limit to 10000 chars
                 }
 
         except Exception as e:
             logger.error(f"Error in _async_parse for {url}: {str(e)}")
+            if browser:
+                try:
+                    await browser.close()
+                except:
+                    pass
             return {
                 "status": "error",
                 "message": str(e)
