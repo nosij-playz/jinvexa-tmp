@@ -602,12 +602,17 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             u.get("concept", "") for u in gap_analysis.get("unknown", [])
         ][:10]
         
+        # Remove duplicates from knowledge gaps
+        knowledge_gaps = list(dict.fromkeys(knowledge_gaps))
+        
         # If no gaps found, use the main topic as a gap
         if not knowledge_gaps:
             knowledge_gaps = [main_topic]
         
-        # Build roadmap with fallback
+        # Build roadmap with unique titles - pass gap_analysis directly
         roadmap = await self._build_roadmap_with_data(main_topic, gap_analysis, knowledge_graph)
+        
+        # If roadmap is still empty, create a fallback
         if not roadmap:
             roadmap = [{
                 "phase_number": 1,
@@ -646,7 +651,7 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             for u in gap_analysis.get("unknown", [])
         )
         if total_hours == 0:
-            total_hours = 10  # Minimum 10 hours
+            total_hours = 10
         
         return LearningPlan(
             main_topic=main_topic,
@@ -669,51 +674,162 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         gap_analysis: Dict,
         knowledge_graph: KnowledgeGraph
     ) -> List[Dict]:
-        """Build roadmap with main topic"""
+        """
+        Build roadmap with unique, meaningful phase titles.
+        No duplicate names or topics.
+        """
         
         unknown = gap_analysis.get("unknown", [])
         partially_known = gap_analysis.get("partially_known", [])
         
         roadmap = []
         phase_num = 1
+        used_titles = set()
+        used_topics = set()
         
+        # Helper to generate unique title
+        def get_unique_title(base_title: str, topics: List[str]) -> str:
+            title = base_title
+            counter = 1
+            while title in used_titles:
+                # Add the first topic to differentiate
+                if topics and counter == 1:
+                    title = f"{base_title}: {topics[0]}"
+                else:
+                    title = f"{base_title} (Part {counter})"
+                counter += 1
+            used_titles.add(title)
+            return title
+        
+        # Phase 1: Foundation (if there are partially known concepts)
         if partially_known:
-            roadmap.append({
-                "phase_number": phase_num,
-                "title": "🔧 Foundation Reinforcement",
-                "description": "Strengthen your existing knowledge to build a solid foundation",
-                "topics": [p["concept"] for p in partially_known[:3]],
-                "estimated_hours": sum(2 for _ in partially_known[:3]),
-                "projects": ["Concept review and practice exercises"],
-                "difficulty": "beginner"
-            })
-            phase_num += 1
-        
-        if unknown:
-            for i in range(0, len(unknown), 4):
-                chunk = unknown[i:i+4]
-                phase_title = "📖 Core Concepts" if i == 0 else "📖 Advanced Core Concepts"
+            topic_names = [p.get("concept", "") for p in partially_known[:3]]
+            topic_names = [t for t in topic_names if t and t not in used_topics]
+            
+            if topic_names:
+                title = "🔧 Strengthening Your Foundation"
+                if len(topic_names) >= 2:
+                    title = f"🔧 Mastering {topic_names[0]} & {topic_names[1]}"
+                elif len(topic_names) == 1:
+                    title = f"🔧 Deepening {topic_names[0]}"
+                
                 roadmap.append({
                     "phase_number": phase_num,
-                    "title": phase_title,
-                    "description": f"Learn essential concepts for understanding {main_topic}",
-                    "topics": [u["concept"] for u in chunk],
-                    "estimated_hours": sum(u.get("estimated_time_hours", 4) for u in chunk),
-                    "projects": [f"Practice: {u['concept']}" for u in chunk[:1]] if chunk else [],
-                    "difficulty": "intermediate"
+                    "title": get_unique_title(title, topic_names),
+                    "description": f"Reinforce your knowledge of {', '.join(topic_names)} to build a solid foundation",
+                    "topics": topic_names,
+                    "estimated_hours": sum(2 for _ in topic_names),
+                    "projects": ["Concept review and practice exercises"],
+                    "difficulty": "beginner"
+                })
+                phase_num += 1
+                used_topics.update(topic_names)
+        
+        # Phases for unknown concepts - group by logical categories
+        if unknown:
+            # Sort unknown by difficulty or importance (use order from gap analysis)
+            # Group concepts into logical phases (3-4 concepts per phase)
+            phase_size = 4
+            for i in range(0, len(unknown), phase_size):
+                chunk = unknown[i:i+phase_size]
+                topic_names = [u.get("concept", "") for u in chunk]
+                # Filter out empty topics and already used topics
+                topic_names = [t for t in topic_names if t and t not in used_topics]
+                
+                if not topic_names:
+                    continue
+                
+                # Determine phase category based on position
+                if i == 0:
+                    # First core phase - fundamentals
+                    if len(topic_names) >= 3:
+                        title = f"📖 Fundamentals: {topic_names[0]}, {topic_names[1]} & {topic_names[2]}"
+                    elif len(topic_names) == 2:
+                        title = f"📖 Understanding {topic_names[0]} & {topic_names[1]}"
+                    else:
+                        title = f"📖 Getting Started with {topic_names[0]}"
+                elif i >= len(unknown) - phase_size:
+                    # Last phase - advanced/integration
+                    if len(topic_names) >= 3:
+                        title = f"🚀 Advanced: {topic_names[0]}, {topic_names[1]} & {topic_names[2]}"
+                    elif len(topic_names) == 2:
+                        title = f"🚀 Deep Dive: {topic_names[0]} & {topic_names[1]}"
+                    else:
+                        title = f"🚀 Advanced {topic_names[0]}"
+                else:
+                    # Middle phases
+                    if len(topic_names) >= 3:
+                        title = f"📚 Building Skills: {topic_names[0]}, {topic_names[1]} & {topic_names[2]}"
+                    elif len(topic_names) == 2:
+                        title = f"📚 Exploring {topic_names[0]} & {topic_names[1]}"
+                    else:
+                        title = f"📚 Mastering {topic_names[0]}"
+                
+                # Generate unique title
+                unique_title = get_unique_title(title, topic_names)
+                
+                # Generate description
+                if len(topic_names) > 3:
+                    description = f"Learn essential concepts including {', '.join(topic_names[:3])}, and more"
+                elif len(topic_names) == 2:
+                    description = f"Learn {topic_names[0]} and {topic_names[1]} in depth"
+                elif len(topic_names) == 1:
+                    description = f"Master {topic_names[0]} with practical understanding"
+                else:
+                    description = f"Learn essential concepts for understanding {main_topic}"
+                
+                # Calculate hours
+                hours = sum(u.get("estimated_time_hours", 4) for u in chunk)
+                
+                roadmap.append({
+                    "phase_number": phase_num,
+                    "title": unique_title,
+                    "description": description,
+                    "topics": topic_names,
+                    "estimated_hours": hours if hours > 0 else 4,
+                    "projects": [f"Practice: {topic_names[0]}" for _ in range(min(1, len(topic_names)))] if topic_names else [],
+                    "difficulty": "intermediate" if i > 0 else "beginner"
+                })
+                phase_num += 1
+                used_topics.update(topic_names)
+        
+        # Final Phase: Capstone - only if we have enough topics
+        if len(used_topics) >= 3:
+            # Get the most advanced topics not used yet (or use last few)
+            advanced_topics = list(used_topics)[-3:] if len(used_topics) >= 3 else list(used_topics)
+            
+            # Get actual concept objects for these topics
+            advanced_concepts = []
+            for topic in advanced_topics:
+                for u in unknown:
+                    if u.get("concept", "") == topic:
+                        advanced_concepts.append(u)
+                        break
+            
+            if advanced_concepts:
+                topic_names = [u.get("concept", "") for u in advanced_concepts]
+                
+                if len(topic_names) >= 3:
+                    title = f"🏆 Capstone: {topic_names[0]}, {topic_names[1]} & {topic_names[2]}"
+                elif len(topic_names) == 2:
+                    title = f"🏆 Capstone: {topic_names[0]} & {topic_names[1]}"
+                else:
+                    title = f"🏆 Capstone: {topic_names[0] if topic_names else 'Final Project'}"
+                
+                roadmap.append({
+                    "phase_number": phase_num,
+                    "title": get_unique_title(title, topic_names),
+                    "description": f"Apply everything you've learned by building a comprehensive {main_topic} project",
+                    "topics": topic_names,
+                    "estimated_hours": 8,
+                    "projects": ["🎯 Capstone Project: End-to-end implementation"],
+                    "difficulty": "advanced"
                 })
                 phase_num += 1
         
-        if unknown:
-            roadmap.append({
-                "phase_number": phase_num,
-                "title": "🚀 Integration & Capstone",
-                "description": f"Put everything together with a comprehensive {main_topic} project",
-                "topics": [u["concept"] for u in unknown[-2:]] if len(unknown) >= 2 else [u["concept"] for u in unknown],
-                "estimated_hours": 8,
-                "projects": ["🎯 Capstone Project: End-to-end implementation"],
-                "difficulty": "advanced"
-            })
+        # If we still have only one phase, add a meaningful title
+        if len(roadmap) == 1 and roadmap[0].get("title") in ["📖 Core Concepts", "📖 Advanced Core Concepts"]:
+            roadmap[0]["title"] = f"📖 Getting Started with {main_topic}"
         
         return roadmap
     

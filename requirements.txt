@@ -21,3 +21,5 @@ python-docx
 # HTML Parsing
 readability-lxml
 markdownify
+
+edge-tts
