@@ -588,51 +588,74 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         gap_analysis: Dict,
         knowledge_graph: KnowledgeGraph
     ) -> LearningPlan:
-        """Generate learning plan from existing data"""
+        """Generate learning plan from existing data with fallback"""
         
         main_topic = concepts.get("main_topic", "Learning Topic")
         goal_type = profile.goals[0] if profile.goals else "understand"
         
-        # Extract strengths and gaps
+        # Extract strengths and gaps - ensure they exist
         strengths = [
-            k["concept"] for k in gap_analysis.get("known", [])
+            k.get("concept", "") for k in gap_analysis.get("known", [])
         ][:5]
         
         knowledge_gaps = [
-            u["concept"] for u in gap_analysis.get("unknown", [])
+            u.get("concept", "") for u in gap_analysis.get("unknown", [])
         ][:10]
         
-        # Build roadmap
+        # If no gaps found, use the main topic as a gap
+        if not knowledge_gaps:
+            knowledge_gaps = [main_topic]
+        
+        # Build roadmap with fallback
         roadmap = await self._build_roadmap_with_data(main_topic, gap_analysis, knowledge_graph)
+        if not roadmap:
+            roadmap = [{
+                "phase_number": 1,
+                "title": f"📖 Getting Started with {main_topic}",
+                "description": f"Learn the fundamentals of {main_topic}",
+                "topics": [main_topic],
+                "estimated_hours": 4,
+                "projects": ["Practice exercises"],
+                "difficulty": "beginner"
+            }]
         
-        # Generate projects
+        # Generate projects with fallback
         projects = await self._generate_projects_with_data(main_topic, gap_analysis)
+        if not projects:
+            projects = [{
+                "title": f"🚀 Getting Started with {main_topic}",
+                "description": f"A beginner-friendly project for {main_topic}",
+                "difficulty": "beginner",
+                "estimated_hours": 4
+            }]
         
-        # Generate quizzes
+        # Generate quizzes with fallback
         quizzes = await self._generate_quizzes_with_data(gap_analysis)
         
-        # Generate resources
+        # Generate resources with fallback
         resources = await self._generate_resources_with_data(main_topic)
         
         # Calculate confidence scores
         confidence_scores = {}
         for concept in gap_analysis.get("unknown", []):
-            confidence_scores[concept["concept"]] = concept.get("confidence", 0.0)
+            confidence_scores[concept.get("concept", "")] = concept.get("confidence", 0.0)
         
-        # Calculate estimated time
+        # Calculate estimated time with fallback
         total_hours = sum(
             u.get("estimated_time_hours", 4) 
             for u in gap_analysis.get("unknown", [])
         )
+        if total_hours == 0:
+            total_hours = 10  # Minimum 10 hours
         
         return LearningPlan(
             main_topic=main_topic,
             goal=profile.goals[0] if profile.goals else "Master " + main_topic,
             goal_type=goal_type,
-            current_level=profile.preferred_depth,
+            current_level=profile.preferred_depth or "beginner",
             strengths=strengths,
             knowledge_gaps=knowledge_gaps,
-            estimated_time_hours=total_hours or 10,
+            estimated_time_hours=total_hours,
             roadmap=roadmap,
             projects=projects,
             quizzes=quizzes,
@@ -900,36 +923,61 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             }
     
     def _get_text_from_extracted(self, extracted_data: Dict) -> str:
-        """Extract text content from DataExtractor's output"""
+        """
+        Extract text content from your DataExtractor's output format
+        Handles all the different output types from your extractor
+        """
+        # Get the data section
         data = extracted_data.get("data", {})
+        
+        # Handle different extraction types
         source_type = extracted_data.get("type", "")
         
         if source_type == "youtube":
-            return data.get("transcript", data.get("content", ""))
+            # YouTube transcript - look for content or full_text
+            content = data.get("content", "")
+            if content:
+                return content
+            # Fallback to full_text if content is empty
+            return data.get("full_text", "")
+        
         elif source_type == "website":
+            # Website content
             content = data.get("content", "")
-            if isinstance(content, dict):
-                return content.get("text", content.get("full_text", ""))
-            return str(content)
+            if content:
+                return content
+            # Fallback to full_text
+            return data.get("full_text", "")
+        
         elif source_type == "document":
+            # Document content
             content = data.get("content", "")
-            if isinstance(content, dict):
-                return content.get("text", content.get("full_text", ""))
-            return str(content)
+            if content:
+                return content
+            # Fallback to full_text
+            return data.get("full_text", "")
+        
         elif source_type == "image":
-            return data.get("text", data.get("content", ""))
+            # Image extracted text
+            content = data.get("content", "")
+            if content:
+                return content
+            return data.get("text", "")
+        
         else:
+            # Generic fallback
             if isinstance(data, dict):
-                for key in ["content", "text", "full_text", "transcript", "body"]:
+                # Try common keys
+                for key in ["content", "text", "full_text", "transcript"]:
                     if key in data:
                         val = data[key]
-                        if isinstance(val, str):
+                        if isinstance(val, str) and len(val) > 10:
                             return val
-                        elif isinstance(val, dict) and "text" in val:
-                            return val["text"]
+                # If all else fails, convert dict to string
                 return json.dumps(data, ensure_ascii=False)
             elif isinstance(data, str):
                 return data
+        
         return ""
     
     async def _extract_concepts(self, text: str, source: str) -> Dict:
@@ -1208,19 +1256,37 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         main_topic = concepts.get("main_topic", "Learning Topic")
         goal_type = profile.goals[0] if profile.goals else "understand"
         
-        strengths = [k["concept"] for k in gap_analysis.get("known", [])][:5]
-        knowledge_gaps = [u["concept"] for u in gap_analysis.get("unknown", [])][:10]
+        # Extract strengths and gaps
+        strengths = [
+            k["concept"] for k in gap_analysis.get("known", [])
+        ][:5]
         
+        knowledge_gaps = [
+            u["concept"] for u in gap_analysis.get("unknown", [])
+        ][:10]
+        
+        # Build roadmap - pass concepts for better titles
         roadmap = await self._build_roadmap(session_id, gap_analysis, knowledge_graph)
+        
+        # Generate projects
         projects = await self._generate_projects(session_id, concepts, gap_analysis)
+        
+        # Generate quizzes
         quizzes = await self._generate_quizzes(session_id, concepts, gap_analysis)
+        
+        # Generate resources
         resources = await self._generate_resources(session_id, concepts)
         
+        # Calculate confidence scores
         confidence_scores = {}
         for concept in gap_analysis.get("unknown", []):
             confidence_scores[concept["concept"]] = concept.get("confidence", 0.0)
         
-        total_hours = sum(u.get("estimated_time_hours", 4) for u in gap_analysis.get("unknown", []))
+        # Calculate estimated time
+        total_hours = sum(
+            u.get("estimated_time_hours", 4) 
+            for u in gap_analysis.get("unknown", [])
+        )
         
         return LearningPlan(
             main_topic=main_topic,
@@ -1243,8 +1309,9 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         gap_analysis: Dict,
         knowledge_graph: KnowledgeGraph
     ) -> List[Dict]:
-        """Build learning roadmap"""
+        """Build learning roadmap with meaningful phase titles"""
         
+        # Get the session to access concepts
         session = self.sessions.get(session_id, {})
         concepts = session.get("concepts", {})
         main_topic = concepts.get("main_topic", "the topic")
@@ -1255,11 +1322,16 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         roadmap = []
         phase_num = 1
         
+        # Phase 1: Foundation (if there are partially known concepts)
         if partially_known:
+            # Generate a meaningful title based on the concepts
+            topic_names = [p["concept"] for p in partially_known[:2]]
+            phase_title = f"🔧 Strengthening {', '.join(topic_names)}" if topic_names else "🔧 Foundation Building"
+            
             roadmap.append({
                 "phase_number": phase_num,
-                "title": "🔧 Foundation Reinforcement",
-                "description": "Strengthen your existing knowledge to build a solid foundation",
+                "title": phase_title,
+                "description": f"Reinforce your existing knowledge of {', '.join(topic_names) if topic_names else 'key concepts'} to build a solid foundation",
                 "topics": [p["concept"] for p in partially_known[:3]],
                 "estimated_hours": sum(2 for _ in partially_known[:3]),
                 "projects": ["Concept review and practice exercises"],
@@ -1267,27 +1339,67 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             })
             phase_num += 1
         
+        # Phase 2-3: Core concepts with meaningful names
         if unknown:
+            # Group unknown concepts into phases of 3-4
             for i in range(0, len(unknown), 4):
                 chunk = unknown[i:i+4]
-                phase_title = "📖 Core Concepts" if i == 0 else "📖 Advanced Core Concepts"
+                
+                # Generate meaningful phase title based on topics
+                topic_names = [u["concept"] for u in chunk]
+                
+                if i == 0:
+                    # First core phase
+                    if len(topic_names) >= 3:
+                        phase_title = f"📖 Mastering {topic_names[0]}, {topic_names[1]}, and {topic_names[2]}"
+                    elif len(topic_names) == 2:
+                        phase_title = f"📖 Understanding {topic_names[0]} and {topic_names[1]}"
+                    else:
+                        phase_title = f"📖 Getting Started with {topic_names[0] if topic_names else main_topic}"
+                else:
+                    # Subsequent phases
+                    if len(topic_names) >= 3:
+                        phase_title = f"🚀 Advanced: {topic_names[0]}, {topic_names[1]}, and {topic_names[2]}"
+                    elif len(topic_names) == 2:
+                        phase_title = f"🚀 Deep Dive into {topic_names[0]} and {topic_names[1]}"
+                    else:
+                        phase_title = f"🚀 Exploring {topic_names[0] if topic_names else 'Advanced Concepts'}"
+                
+                # Generate description
+                if len(topic_names) > 3:
+                    description = f"Learn essential concepts including {', '.join(topic_names[:3])}, and more"
+                else:
+                    description = f"Learn essential concepts for understanding {main_topic}"
+                
                 roadmap.append({
                     "phase_number": phase_num,
                     "title": phase_title,
-                    "description": f"Learn essential concepts for understanding {main_topic}",
-                    "topics": [u["concept"] for u in chunk],
+                    "description": description,
+                    "topics": topic_names,
                     "estimated_hours": sum(u.get("estimated_time_hours", 4) for u in chunk),
                     "projects": [f"Practice: {u['concept']}" for u in chunk[:1]] if chunk else [],
                     "difficulty": "intermediate"
                 })
                 phase_num += 1
         
+        # Final Phase: Integration
         if unknown:
+            # Get the most advanced topics for capstone
+            advanced_topics = unknown[-3:] if len(unknown) >= 3 else unknown
+            topic_names = [u["concept"] for u in advanced_topics]
+            
+            if len(topic_names) >= 3:
+                phase_title = f"🏆 Capstone: {topic_names[0]}, {topic_names[1]}, and {topic_names[2]}"
+            elif len(topic_names) == 2:
+                phase_title = f"🏆 Capstone: {topic_names[0]} and {topic_names[1]}"
+            else:
+                phase_title = f"🏆 Capstone: {topic_names[0] if topic_names else 'Final Project'}"
+            
             roadmap.append({
                 "phase_number": phase_num,
-                "title": "🚀 Integration & Capstone",
-                "description": f"Put everything together with a comprehensive {main_topic} project",
-                "topics": [u["concept"] for u in unknown[-2:]] if len(unknown) >= 2 else [u["concept"] for u in unknown],
+                "title": phase_title,
+                "description": f"Apply everything you've learned by building a comprehensive {main_topic} project",
+                "topics": [u["concept"] for u in advanced_topics],
                 "estimated_hours": 8,
                 "projects": ["🎯 Capstone Project: End-to-end implementation"],
                 "difficulty": "advanced"
@@ -1377,6 +1489,494 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             return f"🔍 Let's dive deeper. Do you have any experience with **{concept}**? If yes, can you tell me more about what you know?"
         
         return f"💭 Are there any specific areas within **{main_topic}** that you're most excited to learn about?"
+
+    async def start_goal_conversation(
+        self,
+        user_id: str,
+        goal_statement: str,
+        user_profile: Optional[UserProfile] = None
+    ) -> Tuple[List[Dict], List[Dict], str]:
+        """
+        Start interactive conversation for goal-based learning.
+        Returns: (conversation_history, questions, session_id)
+        """
+        
+        # Load or create profile
+        if not user_profile and self.memory:
+            user_profile = self.memory.load_profile(user_id)
+        if not user_profile:
+            user_profile = UserProfile(user_id=user_id)
+        
+        # Create session
+        if self.memory:
+            session_id = self.memory.create_session(
+                user_id=user_id,
+                mode="goal",
+                user_profile=user_profile
+            )
+        else:
+            session_id = f"{user_id}_{datetime.now().timestamp()}"
+        
+        # Extract concepts from goal using LLM
+        self._log(f"Analyzing goal: {goal_statement}")
+        concepts = await self._extract_concepts_from_goal(goal_statement)
+        
+        # Initialize session with interactive state
+        self.sessions[session_id] = {
+            "user_id": user_id,
+            "mode": "goal",
+            "goal_statement": goal_statement,
+            "profile": user_profile,
+            "history": [],
+            "concepts": concepts,
+            "knowledge_graph": None,
+            "gap_analysis": None,
+            "learning_plan": None,
+            "phase": "questioning",
+            "answers": [],
+            "question_index": 0,
+            "conversation_complete": False
+        }
+        
+        # Generate dynamic questions using LLM
+        questions = await self._generate_dynamic_questions(session_id, concepts, user_profile)
+        self.sessions[session_id]["questions"] = questions
+        
+        # Build knowledge graph
+        knowledge_graph = await self._build_knowledge_graph(concepts)
+        self.sessions[session_id]["knowledge_graph"] = knowledge_graph
+        
+        # Create intro
+        main_topic = concepts.get("main_topic", "this topic")
+        intro = f"""🎯 I understand you want to learn about **{main_topic}**. That's a great goal!
+
+🧠 Let me ask you a few questions to understand your background and create the perfect learning plan for you.
+
+💡 **Quick Tip:** Be honest about your knowledge - this helps me build the right path for you!"""
+        
+        history = [{
+            "role": "agent",
+            "message": intro,
+            "timestamp": datetime.now().isoformat()
+        }]
+        
+        # Add first question
+        if questions:
+            first_q = questions[0]
+            history.append({
+                "role": "agent",
+                "message": first_q["question"],
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        self.sessions[session_id]["history"] = history
+        
+        return history, questions, session_id
+
+    async def start_reference_conversation(
+        self,
+        user_id: str,
+        source: str,
+        user_profile: Optional[UserProfile] = None
+    ) -> Tuple[List[Dict], List[Dict], str]:
+        """
+        Start interactive conversation for reference-based learning.
+        Returns: (conversation_history, questions, session_id)
+        """
+        
+        # Load or create profile
+        if not user_profile and self.memory:
+            user_profile = self.memory.load_profile(user_id)
+        if not user_profile:
+            user_profile = UserProfile(user_id=user_id)
+        
+        # Create session
+        if self.memory:
+            session_id = self.memory.create_session(
+                user_id=user_id,
+                mode="reference",
+                user_profile=user_profile
+            )
+        else:
+            session_id = f"{user_id}_{datetime.now().timestamp()}"
+        
+        # Extract data from source
+        self._log(f"Extracting data from: {source}")
+        extracted_data = await self._extract_data(source)
+        
+        # Get text content
+        text_content = self._get_text_from_extracted(extracted_data)
+        
+        # Extract concepts
+        self._log("Extracting concepts...")
+        concepts = await self._extract_concepts(text_content, source)
+        
+        # Initialize session with interactive state
+        self.sessions[session_id] = {
+            "user_id": user_id,
+            "mode": "reference",
+            "source": source,
+            "extracted_data": extracted_data,
+            "profile": user_profile,
+            "history": [],
+            "concepts": concepts,
+            "knowledge_graph": None,
+            "gap_analysis": {},
+            "learning_plan": None,
+            "phase": "questioning",
+            "answers": [],
+            "question_index": 0,
+            "conversation_complete": False,
+            "questions": []
+        }
+        
+        # Build knowledge graph
+        knowledge_graph = await self._build_knowledge_graph(concepts)
+        self.sessions[session_id]["knowledge_graph"] = knowledge_graph
+        
+        # Generate dynamic questions using LLM (based on the extracted content)
+        questions = await self._generate_dynamic_questions_for_reference(
+            session_id, concepts, user_profile, extracted_data
+        )
+        self.sessions[session_id]["questions"] = questions
+        
+        # Create intro with source info
+        main_topic = concepts.get("main_topic", "this topic")
+        source_type = extracted_data.get("type", "document")
+        source_names = {
+            "youtube": "YouTube video",
+            "website": "website",
+            "document": "document",
+            "image": "image"
+        }
+        source_name = source_names.get(source_type, "reference")
+        
+        intro = f"""📚 I've analyzed your {source_name} about **{main_topic}**.
+
+🎯 Let me understand your background and goals to create a personalized learning plan.
+
+💡 **Quick Tip:** Be honest about your knowledge - this helps me build the right path for you!"""
+        
+        history = [{
+            "role": "agent",
+            "message": intro,
+            "timestamp": datetime.now().isoformat()
+        }]
+        
+        # Add first question
+        if questions and len(questions) > 0:
+            first_q = questions[0]
+            history.append({
+                "role": "agent",
+                "message": first_q.get("question", ""),
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        self.sessions[session_id]["history"] = history
+        
+        return history, questions, session_id
+
+    async def _generate_dynamic_questions(
+        self,
+        session_id: str,
+        concepts: Dict,
+        profile: UserProfile
+    ) -> List[Dict]:
+        """
+        Generate dynamic questions using LLM based on concepts and user profile.
+        No predefined templates - everything is generated by the brain.
+        """
+        main_topic = concepts.get("main_topic", "")
+        subtopics = concepts.get("subtopics", [])
+        
+        prompt = f"""
+        You are a learning discovery agent. Based on the topic '{main_topic}' and its subtopics: {', '.join(subtopics[:5]) if subtopics else 'None'}, 
+        generate 5-7 personalized questions to understand the user's current knowledge level, goals, and interests.
+
+        The questions should be:
+        1. Adaptive based on the topic
+        2. Mix of multiple choice and open-ended
+        3. Helpful for creating a personalized learning plan
+        4. Natural and conversational
+
+        Return a JSON array where each question has:
+        - id: unique identifier
+        - type: "mcq" or "text"
+        - question: the actual question
+        - options: list of options (only for mcq type)
+        - key: what this question helps understand
+
+        Example format:
+        [
+            {{
+                "id": "exp_1",
+                "type": "mcq",
+                "question": "How would you rate your experience with neural networks?",
+                "options": ["Beginner", "Intermediate", "Advanced", "Expert"],
+                "key": "experience_level"
+            }}
+        ]
+        """
+        
+        try:
+            response = await self.llm.complete_with_json(prompt)
+            if response and isinstance(response, list):
+                return response
+        except Exception as e:
+            self._log(f"Error generating dynamic questions: {e}", "error")
+        
+        # Fallback questions if LLM fails
+        return [
+            {
+                "id": "exp_1",
+                "type": "mcq",
+                "question": f"How would you rate your current experience with {main_topic}?",
+                "options": ["Beginner", "Intermediate", "Advanced"],
+                "key": "experience_level"
+            },
+            {
+                "id": "goal_1",
+                "type": "mcq",
+                "question": "What's your primary learning goal?",
+                "options": ["Build projects", "Career transition", "Academic research", "Personal interest", "Interview preparation"],
+                "key": "learning_goal"
+            },
+            {
+                "id": "time_1",
+                "type": "text",
+                "question": "How many hours per week can you dedicate to learning?",
+                "key": "time_commitment"
+            },
+            {
+                "id": "open_1",
+                "type": "text",
+                "question": f"Is there anything specific within {main_topic} that excites you or you're concerned about?",
+                "key": "specific_interest"
+            }
+        ]
+
+    async def _generate_dynamic_questions_for_reference(
+        self,
+        session_id: str,
+        concepts: Dict,
+        profile: UserProfile,
+        extracted_data: Dict
+    ) -> List[Dict]:
+        """
+        Generate dynamic questions based on the reference content.
+        """
+        main_topic = concepts.get("main_topic", "")
+        subtopics = concepts.get("subtopics", [])
+        source_type = extracted_data.get("type", "document")
+        
+        # Custom prompt for reference mode
+        prompt = f"""
+        You are a learning discovery agent. A user has shared a {source_type} about '{main_topic}'.
+        The content covers these topics: {', '.join(subtopics[:5]) if subtopics else 'various aspects'}.
+        
+        Generate 4-6 personalized questions to understand the user's:
+        1. Current knowledge level related to this content
+        2. What they hope to learn or achieve
+        3. Specific areas they want to focus on
+        4. Their background and time commitment
+        
+        The questions should be:
+        1. Specific to the topic
+        2. Mix of multiple choice and open-ended
+        3. Natural and conversational
+        4. Helpful for creating a personalized learning plan
+
+        Return ONLY a JSON array where each question has:
+        - id: unique identifier
+        - type: "mcq" or "text"
+        - question: the actual question
+        - options: list of options (only for mcq type)
+        - key: what this question helps understand
+
+        Example: [{{"id": "exp_1", "type": "mcq", "question": "How would you rate your experience?", "options": ["Beginner", "Intermediate", "Advanced"], "key": "experience_level"}}]
+        """
+        
+        try:
+            if hasattr(self.llm, 'complete_with_json'):
+                response = await self.llm.complete_with_json(prompt)
+                if response and isinstance(response, list) and len(response) > 0:
+                    return response
+        except Exception as e:
+            self._log(f"Error generating dynamic questions for reference: {e}", "error")
+        
+        # Fallback questions
+        return [
+            {
+                "id": "exp_1",
+                "type": "mcq",
+                "question": f"How would you rate your current experience with {main_topic}?",
+                "options": ["Beginner", "Intermediate", "Advanced"],
+                "key": "experience_level"
+            },
+            {
+                "id": "goal_1",
+                "type": "mcq",
+                "question": "What's your primary learning goal?",
+                "options": ["Understand concepts", "Build projects", "Career transition", "Research", "Interview preparation"],
+                "key": "learning_goal"
+            },
+            {
+                "id": "time_1",
+                "type": "text",
+                "question": "How many hours per week can you dedicate to learning?",
+                "key": "time_commitment"
+            },
+            {
+                "id": "focus_1",
+                "type": "text",
+                "question": f"What specific aspects of {main_topic} are you most interested in?",
+                "key": "focus_area"
+            }
+        ]
+
+    async def process_answer(
+        self,
+        session_id: str,
+        answer: str,
+        question_index: int
+    ) -> Dict:
+        """
+        Process user's answer to a question and return next question or plan.
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return {"error": "Session not found", "type": "error"}
+        
+        questions = session.get("questions", [])
+        
+        # Store answer
+        if "answers" not in session:
+            session["answers"] = []
+        
+        current_q = questions[question_index] if question_index < len(questions) else None
+        
+        if current_q:
+            session["answers"].append({
+                "question": current_q,
+                "answer": answer,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Update profile based on answer
+            await self._update_profile_from_answer_llm(session, current_q, answer)
+        
+        # Check if all questions answered
+        if question_index + 1 >= len(questions):
+            return await self._finalize_plan(session_id)  # Add await here
+        
+        # Return next question
+        next_q = questions[question_index + 1]
+        return {
+            "type": "next_question",
+            "question": next_q.get("question", ""),
+            "options": next_q.get("options", []),
+            "question_id": next_q.get("id", ""),
+            "progress": f"{question_index + 1}/{len(questions)}"
+        }
+
+    async def _update_profile_from_answer_llm(self, session: Dict, question: Dict, answer: str):
+        """
+        Use LLM to extract knowledge from user's answer and update profile.
+        """
+        profile = session["profile"]
+        
+        prompt = f"""
+        Analyze this user's answer to extract knowledge information.
+        
+        Question: {question.get('question')}
+        Answer: {answer}
+        
+        Return a JSON object with:
+        - concepts: List of concepts mentioned in the answer
+        - confidence: Overall confidence level (0-1)
+        - experience: "beginner" | "intermediate" | "advanced"
+        - goal: "build" | "career" | "research" | "interest" | "interview"
+        - time_available: hours per week (number)
+        """
+        
+        try:
+            response = await self.llm.complete_with_json(prompt)
+            if response:
+                # Update concepts
+                for concept in response.get("concepts", []):
+                    profile.add_knowledge(
+                        concept=concept,
+                        confidence=response.get("confidence", 0.5),
+                        evidence=[f"User mentioned in answer: {answer[:100]}"]
+                    )
+                
+                # Update goal
+                if response.get("goal"):
+                    profile.goals.append(response.get("goal"))
+                
+                # Update experience level
+                if response.get("experience"):
+                    profile.preferred_depth = response.get("experience")
+                
+                # Save profile
+                if self.memory:
+                    self.memory.save_profile(profile)
+        except Exception as e:
+            self._log(f"Error updating profile from answer: {e}", "debug")
+
+    async def _finalize_plan(self, session_id: str) -> Dict:
+        """
+        Finalize the conversation and generate learning plan.
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return {"error": "Session not found", "type": "error"}
+        
+        profile = session.get("profile")
+        concepts = session.get("concepts", {})
+        knowledge_graph = session.get("knowledge_graph")
+        
+        if not profile:
+            return {"error": "Missing profile", "type": "error"}
+        
+        # Get gap analysis first
+        if knowledge_graph:
+            gap_analysis = await self._identify_gaps_with_profile(profile, knowledge_graph)
+            session["gap_analysis"] = gap_analysis
+        else:
+            gap_analysis = session.get("gap_analysis", {})
+        
+        # Generate final plan using the existing method - properly await it
+        try:
+            plan = await self._generate_learning_plan_from_data(
+                profile, 
+                concepts, 
+                gap_analysis, 
+                knowledge_graph
+            )
+            
+            session["learning_plan"] = plan
+            session["conversation_complete"] = True
+            
+            # Save to memory
+            if self.memory:
+                mem_session = self.memory.get_session(session_id)
+                if mem_session:
+                    mem_session.learning_plan = plan.to_dict() if plan else None
+                    mem_session.user_profile = profile.to_dict()
+                    mem_session.gap_analysis = gap_analysis
+                    self.memory.update_session(mem_session)
+            
+            return {
+                "type": "plan_ready",
+                "plan": plan.to_dict() if plan else None
+            }
+        except Exception as e:
+            self._log(f"Error generating plan: {e}", "error")
+            return {
+                "type": "error",
+                "error": str(e)
+            }
     
     def _enough_information(self, session_id: str) -> bool:
         """Check if we have enough information to generate a plan"""

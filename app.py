@@ -181,7 +181,7 @@ class JinvexaApp:
         """)
     
     async def run_mode_1_goal(self):
-        """Mode 1: Goal-based learning with memory"""
+        """Mode 1: Goal-based learning with interactive conversation"""
         print("\n" + "="*60)
         print("📚 MODE 1: Goal-Based Learning")
         print("="*60)
@@ -193,7 +193,7 @@ class JinvexaApp:
         
         user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
         
-        # Load existing profile from memory
+        # Load existing profile
         profile = self.memory.load_profile(user_id)
         if profile:
             print(f"✅ Loaded existing profile for '{user_id}' ({len(profile.known_concepts)} concepts)")
@@ -204,39 +204,80 @@ class JinvexaApp:
         print("\n🔄 Analyzing your goal and creating personalized learning plan...\n")
         
         try:
-            conversation, plan, session_id = await self.learning_discovery.process_goal_mode_with_memory(
+            # Get conversation start with questions
+            conversation, questions, session_id = await self.learning_discovery.start_goal_conversation(
                 user_id=user_id,
                 goal_statement=goal,
                 user_profile=profile
             )
             
-            # Display conversation
-            self._display_conversation(conversation)
+            # Display initial conversation - handle safely
+            print("\n" + "="*60)
+            print("💬 DISCOVERY CONVERSATION")
+            print("="*60)
             
-            # Display plan
-            self._display_plan(plan)
+            for msg in conversation:
+                role = "🤖 Agent" if msg.get("role") == "agent" else "👤 You"
+                message = msg.get("message", msg.get("question", str(msg)))
+                print(f"\n[{role}]: {message}")
             
-            # Show session info
-            print(f"\n💾 Session ID: {session_id[:20]}...")
-            print(f"💾 Profile: {len(profile.known_concepts)} concepts saved")
+            # Interactive loop
+            print("\n" + "="*60)
+            print("💬 INTERACTIVE DISCOVERY")
+            print("="*60)
+            print("Type 'quit' to skip questions and generate plan\n")
+            
+            answered = 0
+            total_questions = len(questions) if questions else 0
+            
+            while answered < total_questions:
+                user_input = input("\n👤 Your answer: ").strip()
+                if user_input.lower() in ['quit', 'exit', 'done']:
+                    break
+                
+                if not user_input:
+                    continue
+                
+                # Process answer
+                result = await self.learning_discovery.process_answer(
+                    session_id=session_id,
+                    answer=user_input,
+                    question_index=answered
+                )
+                
+                if result.get("type") == "plan_ready":
+                    print("\n✅ Great! Learning plan generated!\n")
+                    plan_data = result.get("plan")
+                    if plan_data:
+                        self._display_plan(plan_data)
+                    else:
+                        print("⚠️ Plan generated but data is empty.")
+                    break
+                elif result.get("type") == "next_question":
+                    answered += 1
+                    print(f"\n🤖 Agent: {result.get('question')}")
+                    if result.get('options'):
+                        print(f"   Options: {', '.join(result['options'])}")
+                    if result.get('progress'):
+                        print(f"   Progress: {result['progress']}")
+                elif result.get("error"):
+                    print(f"❌ {result.get('error')}")
+                    break
             
             # Show memory stats
             stats = self.memory.get_user_stats(user_id)
             print(f"\n📊 Learning Stats:")
             print(f"   Sessions: {stats['total_sessions']} | Messages: {stats['total_conversations']}")
             if stats.get('knowledge_progress'):
-                print(f"   Known: {stats['knowledge_progress'].get('known_concepts', 0)} concepts")
-            
-            # Ask about continuing conversation
-            continue_choice = input("\n🔄 Continue conversation? (y/n): ").lower()
-            if continue_choice in ['y', 'yes']:
-                await self._continue_conversation(session_id)
+                print(f"   Known Concepts: {stats['knowledge_progress'].get('known_concepts', 0)}")
             
         except Exception as e:
             print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def run_mode_2_reference(self):
-        """Mode 2: Reference-based learning with memory"""
+        """Mode 2: Reference-Based Learning - User provides a document/video/URL"""
         print("\n" + "="*60)
         print("📚 MODE 2: Reference-Based Learning")
         print("="*60)
@@ -246,35 +287,33 @@ class JinvexaApp:
             print("❌ Please provide a valid source.")
             return
         
-        # Test extraction
+        # Extract content
         print("\n🔄 Extracting content...")
         try:
             result = self.data_extractor.extract(source)
             source_type = result.get('type', 'unknown')
             print(f"✅ Type: {source_type}")
             
-            # Check if there was an error
-            if result.get('error'):
-                print(f"⚠️  Warning: {result['error']}")
-            
-            # Show preview of extracted content
+            # Show content preview
             data = result.get('data', {})
             if isinstance(data, dict):
                 content = data.get('content', '')
-                if isinstance(content, str) and len(content) > 0:
-                    preview = content[:300] + "..." if len(content) > 300 else content
-                    print(f"\n📄 Content preview:\n{preview}\n")
-            elif isinstance(data, str):
-                preview = data[:300] + "..." if len(data) > 300 else data
-                print(f"\n📄 Content preview:\n{preview}\n")
-                
+                if content and len(content) > 100:
+                    preview = content[:500] + "..." if len(content) > 500 else content
+                    print(f"\n📄 Content preview ({len(content)} chars):\n{preview[:300]}...\n")
+                elif content:
+                    print(f"\n📄 Content length: {len(content)} chars")
+                else:
+                    print("⚠️  No content extracted")
+                    
         except Exception as e:
             print(f"❌ Extraction failed: {e}")
             return
         
-        user_id = input("\n👤 Enter user ID (default: user_1): ").strip() or "user_1"
+        # Get user ID
+        user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
         
-        # Load existing profile from memory
+        # Load or create profile
         profile = self.memory.load_profile(user_id)
         if profile:
             print(f"✅ Loaded existing profile for '{user_id}' ({len(profile.known_concepts)} concepts)")
@@ -285,89 +324,153 @@ class JinvexaApp:
         print("\n🔄 Analyzing your reference and creating personalized learning plan...\n")
         
         try:
-            conversation, plan, session_id = await self.learning_discovery.process_reference_mode_with_memory(
+            # Start interactive reference conversation
+            conversation, questions, session_id = await self.learning_discovery.start_reference_conversation(
                 user_id=user_id,
                 source=source,
                 user_profile=profile
             )
             
-            # Display conversation
-            self._display_conversation(conversation)
+            # Display initial conversation
+            print("\n" + "="*60)
+            print("💬 DISCOVERY CONVERSATION")
+            print("="*60)
             
-            # Display plan
-            self._display_plan(plan)
+            for msg in conversation:
+                role = "🤖 Agent" if msg.get("role") == "agent" else "👤 You"
+                message = msg.get("message", msg.get("question", str(msg)))
+                print(f"\n[{role}]: {message}")
             
-            print(f"\n💾 Session ID: {session_id[:20]}...")
-            print(f"💾 Profile: {len(profile.known_concepts)} concepts saved")
+            # Interactive loop
+            print("\n" + "="*60)
+            print("💬 INTERACTIVE DISCOVERY")
+            print("="*60)
+            print("Type 'quit' to skip questions and generate plan\n")
+            
+            answered = 0
+            total_questions = len(questions) if questions else 0
+            
+            while answered < total_questions:
+                user_input = input("\n👤 Your answer: ").strip()
+                if user_input.lower() in ['quit', 'exit', 'done']:
+                    break
+                
+                if not user_input:
+                    continue
+                
+                # Process answer
+                result = await self.learning_discovery.process_answer(
+                    session_id=session_id,
+                    answer=user_input,
+                    question_index=answered
+                )
+                
+                if result.get("type") == "plan_ready":
+                    print("\n✅ Great! Learning plan generated!\n")
+                    plan_data = result.get("plan")
+                    if plan_data:
+                        self._display_plan(plan_data)
+                    else:
+                        print("⚠️ Plan generated but data is empty.")
+                    break
+                elif result.get("type") == "next_question":
+                    answered += 1
+                    print(f"\n🤖 Agent: {result.get('question')}")
+                    if result.get('options'):
+                        print(f"   Options: {', '.join(result['options'])}")
+                    if result.get('progress'):
+                        print(f"   Progress: {result['progress']}")
+                elif result.get("error"):
+                    print(f"❌ {result.get('error')}")
+                    break
+            
+            # Show memory stats
+            stats = self.memory.get_user_stats(user_id)
+            print(f"\n📊 Learning Stats:")
+            print(f"   Sessions: {stats['total_sessions']} | Messages: {stats['total_conversations']}")
+            if stats.get('knowledge_progress'):
+                print(f"   Known Concepts: {stats['knowledge_progress'].get('known_concepts', 0)}")
             
         except Exception as e:
             print(f"❌ Error: {e}")
             import traceback
             traceback.print_exc()
     
-    async def _continue_conversation(self, session_id: str):
-        """Continue an existing conversation"""
-        print("\n" + "="*60)
-        print("💬 CONTINUING CONVERSATION")
-        print("="*60)
-        print("Type 'quit' to end.\n")
-        
-        while True:
-            user_msg = input("👤 You: ").strip()
-            if user_msg.lower() in ['quit', 'exit', 'done']:
-                break
-            
-            if not user_msg:
-                continue
-            
-            result = self.learning_discovery.continue_conversation_with_memory(
-                session_id, user_msg
-            )
-            
-            if "error" in result:
-                print(f"❌ {result['error']}")
-                break
-            
-            history = result.get("conversation_history", [])
-            if history:
-                last_msg = history[-1]
-                print(f"🤖 Agent: {last_msg['message']}")
-    
     def _display_conversation(self, conversation):
-        """Display the conversation"""
+        """Display the conversation with proper error handling"""
         print("\n" + "="*60)
         print("💬 DISCOVERY CONVERSATION")
         print("="*60)
+        
+        if not conversation:
+            print("No conversation history available.")
+            return
+        
         for msg in conversation:
-            role = "🤖 Agent" if msg["role"] == "agent" else "👤 You"
-            print(f"\n[{role}]: {msg['message']}")
+            role = "🤖 Agent" if msg.get("role") == "agent" else "👤 You"
+            
+            # Handle different message formats
+            if "question" in msg:
+                # It's a question object
+                message = msg.get("question", "")
+            elif "message" in msg:
+                message = msg.get("message", "")
+            elif "content" in msg:
+                message = msg.get("content", "")
+            else:
+                # Try to get any string value
+                message = str(msg) if not isinstance(msg, dict) else "Unknown message"
+            
+            print(f"\n[{role}]: {message}")
     
     def _display_plan(self, plan):
-        """Display the learning plan"""
+        """Display the learning plan with safety checks"""
+        if not plan:
+            print("\n❌ No learning plan generated. Please try again.")
+            return
+        
         print("\n" + "="*60)
         print("📚 YOUR PERSONALIZED LEARNING PLAN")
         print("="*60)
-        print(f"\n📌 Topic: {plan.main_topic}")
-        print(f"🎯 Goal: {plan.goal}")
-        print(f"⏱️ Time: {plan.estimated_time_hours} hours")
         
-        if plan.knowledge_gaps:
+        # Safely access attributes - handle both dict and object
+        if isinstance(plan, dict):
+            main_topic = plan.get('main_topic', 'Unknown Topic')
+            goal = plan.get('goal', 'Master the topic')
+            estimated_time = plan.get('estimated_time_hours', 0)
+            knowledge_gaps = plan.get('knowledge_gaps', [])
+            roadmap = plan.get('roadmap', [])
+            projects = plan.get('projects', [])
+        else:
+            # It's a LearningPlan object
+            main_topic = getattr(plan, 'main_topic', 'Unknown Topic')
+            goal = getattr(plan, 'goal', 'Master the topic')
+            estimated_time = getattr(plan, 'estimated_time_hours', 0)
+            knowledge_gaps = getattr(plan, 'knowledge_gaps', [])
+            roadmap = getattr(plan, 'roadmap', [])
+            projects = getattr(plan, 'projects', [])
+        
+        print(f"\n📌 Topic: {main_topic}")
+        print(f"🎯 Goal: {goal}")
+        print(f"⏱️ Time: {estimated_time} hours")
+        
+        if knowledge_gaps:
             print("\n📖 Knowledge Gaps:")
-            for gap in plan.knowledge_gaps[:5]:
+            for gap in knowledge_gaps[:5]:
                 print(f"  • {gap}")
         
-        if plan.roadmap:
+        if roadmap:
             print("\n🗺️ Roadmap:")
-            for phase in plan.roadmap:
+            for phase in roadmap:
                 print(f"\n  📍 Phase {phase.get('phase_number')}: {phase.get('title')}")
                 print(f"     {phase.get('description', '')}")
                 if phase.get('topics'):
                     print(f"     Topics: {', '.join(phase.get('topics', []))}")
                 print(f"     ⏱️ {phase.get('estimated_hours', 0)} hours")
         
-        if plan.projects:
+        if projects:
             print("\n🛠️ Projects:")
-            for project in plan.projects[:2]:
+            for project in projects[:2]:
                 print(f"  • {project.get('title', '')}")
         
         print("\n" + "="*60)
