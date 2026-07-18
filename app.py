@@ -24,6 +24,7 @@ from Agents.TeachingAgent import TeachingAgent
 from Agents.AssignmentGeneratorAgent import AssignmentGeneratorAgent
 from Agents.AssignmentEvaluatorAgent import AssignmentEvaluatorAgent
 from Agents.AssignmentTrackerAgent import AssignmentTrackerAgent
+from Agents.MentoringAgent import MentoringAgent
 from Models.UserProfile import UserProfile
 
 
@@ -185,6 +186,12 @@ class JinvexaApp:
         )
         
         self.assignment_tracker = AssignmentTrackerAgent(
+            llm_client=self.llm_client,
+            memory_handler=self.memory
+        )
+        
+        # Initialize Mentoring Agent
+        self.mentoring_agent = MentoringAgent(
             llm_client=self.llm_client,
             memory_handler=self.memory
         )
@@ -1003,6 +1010,222 @@ class JinvexaApp:
         print("="*60)
         print(f"\n📌 Model: {self.llm_client.model}")
     
+    # ==================== MENTORING LAYER ====================
+    
+    async def run_mode_mentoring(self):
+        """Mode: Mentoring Layer - Chat with AI Mentor"""
+        print("\n" + "="*60)
+        print("🧠 MODE: Mentoring Layer")
+        print("="*60)
+        
+        print("\n📋 Select Mentoring Mode:")
+        print("  1. Session Mode (Chat about one specific course)")
+        print("  2. Full Mode (Chat about all your learning)")
+        
+        mode_choice = input("\nEnter choice (1-2): ").strip()
+        
+        if mode_choice not in ["1", "2"]:
+            print("❌ Invalid choice.")
+            return
+        
+        mode = "session" if mode_choice == "1" else "full"
+        
+        user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
+        
+        session_id = None
+        session_topic = "All Sessions"
+        
+        if mode == "session":
+            # List available sessions with learning plans
+            sessions = self.teaching_agent.list_available_sessions()
+            
+            if not sessions:
+                print("❌ No sessions with learning plans found.")
+                print("   Please complete a course first (Mode 3).")
+                return
+            
+            print("\n📋 Available courses:")
+            print("-" * 50)
+            for i, session in enumerate(sessions, 1):
+                print(f"{i}. Topic: {session.get('main_topic', 'Unknown')}")
+                print(f"   Session: {session['session_id'][:20]}...")
+                print()
+            
+            choice = input("\n🔍 Select course to chat about: ").strip()
+            if not choice.isdigit():
+                print("❌ Invalid selection.")
+                return
+            
+            idx = int(choice) - 1
+            if idx < 0 or idx >= len(sessions):
+                print("❌ Invalid session number.")
+                return
+            
+            selected = sessions[idx]
+            session_id = selected["session_id"]
+            session_topic = selected.get("main_topic", "Unknown")
+        
+        print(f"\n🧠 Starting mentoring session for: {session_topic}")
+        print(f"📌 Mode: {mode.upper()}")
+        print("="*60)
+        print("\n💡 You can ask questions about the course content, request explanations,")
+        print("   seek clarification on concepts, or just have a learning conversation.")
+        print("\n   Type 'quit' to end the session.")
+        print("   Type 'clear' to clear conversation history.")
+        print("   Type 'summary' to see a summary of this conversation.")
+        print("="*60)
+        
+        conversation_id = None
+        
+        while True:
+            user_input = input("\n👤 You: ").strip()
+            
+            if not user_input:
+                continue
+            
+            if user_input.lower() in ['quit', 'exit', 'done']:
+                print("\n👋 Thank you for mentoring! Keep learning!")
+                break
+            
+            if user_input.lower() == 'clear':
+                conversation_id = None
+                print("✅ Conversation history cleared. Starting fresh.")
+                continue
+            
+            if user_input.lower() == 'summary':
+                if conversation_id:
+                    info = self.mentoring_agent.get_conversation_info(conversation_id)
+                    if info:
+                        print(f"\n📊 Conversation Summary:")
+                        print(f"   Messages: {info.get('message_count', 0)}")
+                        print(f"   Started: {info.get('created_at', '')[:16]}")
+                        print(f"   Last activity: {info.get('last_accessed', '')[:16]}")
+                else:
+                    print("📊 No active conversation yet.")
+                continue
+            
+            # Show typing indicator
+            print("\n🧠 Jinvexa Mentor is thinking...")
+            
+            try:
+                # Get response
+                result = await self.mentoring_agent.chat(
+                    user_id=user_id,
+                    message=user_input,
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    mode=mode
+                )
+                
+                if "error" in result:
+                    print(f"❌ Error: {result['error']}")
+                    continue
+                
+                conversation_id = result.get("conversation_id")
+                response = result.get("response", "I apologize, I couldn't generate a response.")
+                
+                print(f"\n🧠 Mentor: {response}")
+                
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    async def run_mode_mentoring_history(self):
+        """View mentoring history"""
+        print("\n" + "="*60)
+        print("📋 MENTORING HISTORY")
+        print("="*60)
+        
+        user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
+        
+        conversations = self.mentoring_agent.list_conversations(user_id)
+        
+        if not conversations:
+            print(f"\nNo mentoring conversations found for: {user_id}")
+            return
+        
+        print(f"\n📋 Found {len(conversations)} conversations:")
+        print("-" * 50)
+        
+        for i, conv in enumerate(conversations, 1):
+            print(f"{i}. {conv.get('topic', 'Unknown')}")
+            print(f"   Mode: {conv.get('mode', 'Unknown').upper()}")
+            print(f"   Messages: {conv.get('message_count', 0)}")
+            print(f"   Last: {conv.get('last_accessed', '')[:16]}")
+            print()
+        
+        choice = input("\n🔍 Enter number to continue a conversation: ").strip()
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(conversations):
+                conv = conversations[idx]
+                await self._continue_mentoring_conversation(
+                    user_id=user_id,
+                    conversation_id=str(conv["id"]),
+                    session_id=conv.get("session_id"),
+                    mode=conv.get("mode", "session")
+                )
+    
+    async def _continue_mentoring_conversation(
+        self,
+        user_id: str,
+        conversation_id: str,
+        session_id: str,
+        mode: str
+    ):
+        """Continue an existing mentoring conversation."""
+        
+        info = self.mentoring_agent.get_conversation_info(conversation_id)
+        session_topic = self.mentoring_agent.get_session_topic(session_id)
+        
+        print(f"\n🧠 Continuing mentoring session: {session_topic}")
+        print(f"📌 Mode: {mode.upper()}")
+        print("="*60)
+        print("\n💡 Type 'quit' to end the session.")
+        print("   Type 'clear' to clear conversation history.")
+        print("="*60)
+        
+        while True:
+            user_input = input("\n👤 You: ").strip()
+            
+            if not user_input:
+                continue
+            
+            if user_input.lower() in ['quit', 'exit', 'done']:
+                print("\n👋 Thank you for mentoring! Keep learning!")
+                break
+            
+            if user_input.lower() == 'clear':
+                conversation_id = None
+                print("✅ Conversation history cleared. Starting fresh.")
+                continue
+            
+            print("\n🧠 Jinvexa Mentor is thinking...")
+            
+            try:
+                result = await self.mentoring_agent.chat(
+                    user_id=user_id,
+                    message=user_input,
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    mode=mode
+                )
+                
+                if "error" in result:
+                    print(f"❌ Error: {result['error']}")
+                    continue
+                
+                conversation_id = result.get("conversation_id")
+                response = result.get("response", "I apologize, I couldn't generate a response.")
+                
+                print(f"\n🧠 Mentor: {response}")
+                
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                import traceback
+                traceback.print_exc()
+    
     async def run(self):
         """Main run loop"""
         self.display_banner()
@@ -1013,16 +1236,18 @@ class JinvexaApp:
             print("  2. Reference-Based Learning (Discovery)")
             print("  3. Teaching Layer (Generate Course)")
             print("  4. Assignment Layer (Take Assignment)")
-            print("  5. View Progress")
-            print("  6. View Stats")
-            print("  7. View Sessions")
-            print("  8. Continue Conversation")
-            print("  9. Teaching Status")
-            print(" 10. Model Info")
-            print(" 11. Exit")
+            print("  5. Mentoring Layer (Chat with AI Mentor)")
+            print("  6. Mentoring History")
+            print("  7. View Progress")
+            print("  8. View Stats")
+            print("  9. View Sessions")
+            print(" 10. Continue Conversation")
+            print(" 11. Teaching Status")
+            print(" 12. Model Info")
+            print(" 13. Exit")
             
             try:
-                choice = input("\nEnter choice (1-11): ").strip()
+                choice = input("\nEnter choice (1-13): ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\n👋 Goodbye!")
                 break
@@ -1036,18 +1261,22 @@ class JinvexaApp:
             elif choice == "4":
                 await self.run_mode_assignment()
             elif choice == "5":
-                await self.run_mode_progress()
+                await self.run_mode_mentoring()
             elif choice == "6":
-                await self.run_show_stats()
+                await self.run_mode_mentoring_history()
             elif choice == "7":
-                await self.run_view_sessions()
+                await self.run_mode_progress()
             elif choice == "8":
-                await self._handle_continue_conversation()
+                await self.run_show_stats()
             elif choice == "9":
-                await self.run_teaching_status()
+                await self.run_view_sessions()
             elif choice == "10":
-                await self.run_model_info()
+                await self._handle_continue_conversation()
             elif choice == "11":
+                await self.run_teaching_status()
+            elif choice == "12":
+                await self.run_model_info()
+            elif choice == "13":
                 print("\n👋 Thank you for using Jinvexa! Good luck with your learning journey!")
                 break
             else:

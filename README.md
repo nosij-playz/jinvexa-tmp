@@ -62,13 +62,24 @@ Generates and evaluates personalized assignments from course content with AI-dri
   - `progress/` — Progress summary files
 - **Fallback System**: If LLM configuration fails, an intelligent rule-based fallback adjusts question counts based on lesson count and content length.
 
-### 5. Mentoring Layer (Guidance) ❌
-**Status: Not Built Yet**
-*Planned features:*
-- Mentor Agent for high-level guidance.
-- Revision Agent for spaced repetition.
-- Career Agent for professional alignment.
-- Daily Planner for consistency.
+### 5. Mentoring Layer (Guidance) ✅
+**Status: Complete**
+AI-powered mentoring chatbot that provides personalized guidance and conversation-based learning:
+- **Two Modes**:
+  - **Session Mode**: Chat about one specific course — the mentor has full context of that course's content, lessons, and learning plan.
+  - **Full Mode**: Chat about all your learning across all sessions — the mentor sees your entire learning journey.
+- **Conversation Memory**: SQLite-based persistent storage for conversation history with:
+  - Auto-garbage collection (cleans conversations older than 7 days)
+  - Message limit management (truncates overly long conversations)
+  - Session content caching for fast access
+- **Interactive Commands**:
+  - `quit` — End the mentoring session
+  - `clear` — Reset conversation history
+  - `summary` — View conversation stats (message count, duration)
+- **Context-Aware Responses**: LLM-powered answers that reference actual course content, learning plans, and user progress.
+- **History & Resume**: View past conversations and continue them from where you left off.
+- **Structured Storage**: All mentoring data organized under `learn_files/mentoring/`:
+  - `mentoring_memory.db` — SQLite database with conversations, messages, and content cache
 
 ---
 
@@ -100,3 +111,20 @@ Generates and evaluates personalized assignments from course content with AI-dri
 ```bash
 python app.py
 ```
+
+### 📋 Available Modes
+| # | Mode | Description |
+|---|------|-------------|
+| 1 | Goal-Based Learning | Interactive discovery conversation to build a learning plan from a goal |
+| 2 | Reference-Based Learning | Extract content from URL/video/doc and build a learning plan |
+| 3 | Teaching Layer | Generate full course with text & audio lessons from a learning plan |
+| 4 | Assignment Layer | Take AI-generated MCQ & written assignments with auto-grading |
+| 5 | Mentoring Layer | Chat with AI Mentor (session-specific or full learning context) |
+| 6 | Mentoring History | View and resume past mentoring conversations |
+| 7 | View Progress | Track assignment scores, trends, and certificate eligibility |
+| 8 | View Stats | See user learning statistics and knowledge progress |
+| 9 | View Sessions | Browse all learning sessions |
+| 10 | Continue Conversation | Resume a previous discovery conversation |
+| 11 | Teaching Status | Check course generation status for a session |
+| 12 | Model Info | Display current Ollama model information |
+| 13 | Exit | Quit the application |
