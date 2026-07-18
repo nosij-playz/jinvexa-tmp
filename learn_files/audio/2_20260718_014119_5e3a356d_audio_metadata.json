@@ -1,0 +1,28 @@
+{
+  "2_20260718_014119_5e3a356d": [
+    {
+      "topic": "Programming Basics",
+      "generated_at": "2026-07-18T01:47:44.910728",
+      "gender": "female",
+      "file": "learn_files\\audio\\2_20260718_014119_5e3a356d_20260718_014619_Programming_Basics_female.mp3"
+    },
+    {
+      "topic": "Image Processing",
+      "generated_at": "2026-07-18T01:48:09.842001",
+      "gender": "male",
+      "file": "learn_files\\audio\\2_20260718_014119_5e3a356d_20260718_014633_Image_Processing_male.mp3"
+    },
+    {
+      "topic": "AI Engineering",
+      "generated_at": "2026-07-18T01:48:11.555141",
+      "gender": "female",
+      "file": "learn_files\\audio\\2_20260718_014119_5e3a356d_20260718_014643_AI_Engineering_female.mp3"
+    },
+    {
+      "topic": "Model Deployment & Scaling",
+      "generated_at": "2026-07-18T01:48:14.161888",
+      "gender": "male",
+      "file": "learn_files\\audio\\2_20260718_014119_5e3a356d_20260718_014650_Model_Deployment__Scaling_male.mp3"
+    }
+  ]
+}

@@ -20,6 +20,7 @@ from Agents.DependencyAgent import DependencyAgent
 from Agents.KnowledgeGapAgent import KnowledgeGapAgent
 from Agents.LearningDiscoveryAgent import LearningDiscoveryAgent
 from Agents.MemoryHandler import MemoryHandler
+from Agents.TeachingAgent import TeachingAgent
 from Models.UserProfile import UserProfile
 
 
@@ -158,6 +159,12 @@ class JinvexaApp:
             concept_extractor=self.concept_extractor,
             dependency_agent=self.dependency_agent,
             knowledge_gap_agent=self.knowledge_gap_agent,
+            llm_client=self.llm_client,
+            memory_handler=self.memory
+        )
+        
+        # Initialize Teaching Agent
+        self.teaching_agent = TeachingAgent(
             llm_client=self.llm_client,
             memory_handler=self.memory
         )
@@ -539,6 +546,191 @@ class JinvexaApp:
                 print("\n📋 Session Details:")
                 print(json.dumps(summary, indent=2, default=str))
     
+    async def _handle_continue_conversation(self):
+        """Handle continue conversation flow"""
+        user_id = input("\n👤 Enter user ID (default: user_1): ").strip() or "user_1"
+        sessions = self.memory.get_user_sessions(user_id)
+        if sessions:
+            print("\n📋 Recent sessions:")
+            for i, s in enumerate(sessions[:5], 1):
+                print(f"  {i}. {s.session_id[:20]}... ({s.mode}) - {s.created_at[:19]}")
+            session_num = input("\nEnter session number: ")
+            if session_num.isdigit():
+                idx = int(session_num) - 1
+                if 0 <= idx < len(sessions):
+                    await self._continue_conversation(sessions[idx].session_id)
+        else:
+            print("❌ No sessions found.")
+    
+    async def run_mode_teaching(self):
+        """Mode 3: Teaching Layer - Generate lessons from learning plans"""
+        print("\n" + "="*60)
+        print("📚 MODE 3: Teaching Layer")
+        print("="*60)
+        
+        # List available sessions
+        sessions = self.teaching_agent.list_available_sessions()
+        
+        if not sessions:
+            print("❌ No sessions with learning plans found.")
+            print("   Please create a learning plan first (Mode 1 or 2).")
+            return
+        
+        print("\n📋 Available sessions with learning plans:")
+        print("-" * 50)
+        for i, session in enumerate(sessions, 1):
+            print(f"{i}. Session: {session['session_id'][:20]}...")
+            print(f"   Topic: {session.get('main_topic', 'Unknown')}")
+            print(f"   User: {session.get('user_id', 'Unknown')}")
+            print(f"   Phases: {session.get('phase_count', 0)}")
+            print(f"   Total Time: {session.get('total_hours', 0)} hours")
+            print()
+        
+        # Select session
+        choice = input("\n🔍 Select session number to generate course: ").strip()
+        if not choice.isdigit():
+            print("❌ Invalid selection.")
+            return
+        
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(sessions):
+            print("❌ Invalid session number.")
+            return
+        
+        selected_session = sessions[idx]
+        session_id = selected_session["session_id"]
+        
+        print(f"\n📚 Generating course for: {selected_session.get('main_topic', 'Unknown')}")
+        print(f"   Phases: {selected_session.get('phase_count', 0)}")
+        print(f"   Total Time: {selected_session.get('total_hours', 0)} hours")
+        
+        print("\n🧠 AI is analyzing each topic to decide the best format...")
+        print("   (text, female voice, or male voice based on content)\n")
+        
+        try:
+            result = await self.teaching_agent.generate_course_from_session(
+                session_id=session_id
+            )
+            
+            if "error" in result:
+                print(f"❌ Error: {result['error']}")
+                return
+            
+            # Display format decisions
+            if result.get("format_decisions"):
+                print("\n" + "="*60)
+                print("📋 FORMAT DECISIONS MADE BY AI")
+                print("="*60)
+                for decision in result["format_decisions"]:
+                    output_format = decision.get("output_format", "text")
+                    if output_format == "text":
+                        emoji = "📄"
+                        label = "Text (Self-paced reading)"
+                    elif output_format == "female_voice":
+                        emoji = "👩"
+                        label = "Female Voice (Warm audio)"
+                    elif output_format == "male_voice":
+                        emoji = "👨"
+                        label = "Male Voice (Professional audio)"
+                    else:
+                        emoji = "📄"
+                        label = "Text"
+                    print(f"   {emoji} {decision.get('topic')} → {label}")
+                    print(f"      💡 {decision.get('reason', '')[:80]}...")
+            
+            # Display results
+            print("\n" + "="*60)
+            print("✅ COURSE GENERATION COMPLETE")
+            print("="*60)
+            
+            print(f"\n📌 Course: {result.get('main_topic', 'Unknown')}")
+            print(f"📝 Total Lessons: {result.get('total_lessons', 0)}")
+            
+            # Show manifest/watch order
+            manifest = result.get('manifest', [])
+            if manifest:
+                print("\n📋 WATCH ORDER (from manifest):")
+                print("-" * 40)
+                for item in manifest[:10]:
+                    order = item.get('order', 0)
+                    topic = item.get('topic', '')
+                    content_type = item.get('content_type', 'text')
+                    gender = item.get('gender', '')
+                    
+                    if content_type == 'audio':
+                        icon = f"🎧 ({gender})"
+                    else:
+                        icon = "📄"
+                    
+                    print(f"   {order}. {icon} {topic}")
+                
+                if len(manifest) > 10:
+                    print(f"   ... and {len(manifest) - 10} more lessons")
+            
+            # Show files
+            text_files = result.get('text_files', [])
+            audio_files = result.get('audio_files', [])
+            
+            if text_files:
+                print(f"\n📄 Text Lessons ({len(text_files)} files):")
+                for file in text_files[:5]:
+                    print(f"   • {Path(file).name}")
+                if len(text_files) > 5:
+                    print(f"   ... and {len(text_files) - 5} more")
+            
+            if audio_files:
+                print(f"\n🎧 Audio Lessons ({len(audio_files)} files):")
+                for file in audio_files[:5]:
+                    print(f"   • {Path(file).name}")
+                if len(audio_files) > 5:
+                    print(f"   ... and {len(audio_files) - 5} more")
+            
+            print(f"\n💾 Files saved in: {self.teaching_agent.learn_files_dir}/")
+            print(f"   📄 Lessons: {self.teaching_agent.lessons_dir}/")
+            print(f"   🎧 Audio: {self.teaching_agent.audio_dir}/")
+            print(f"   📋 Manifest: {self.teaching_agent.manifest_dir}/")
+            
+            # Show manifest location
+            manifest_file = self.teaching_agent.manifest_dir / f"{session_id}_manifest.json"
+            if manifest_file.exists():
+                print(f"\n📋 Manifest saved at: {manifest_file}")
+                print(f"   Contains complete watch order with content types")
+            
+        except Exception as e:
+            print(f"❌ Error generating course: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def run_teaching_status(self):
+        """View teaching status for a session"""
+        print("\n" + "="*60)
+        print("📊 TEACHING STATUS")
+        print("="*60)
+        
+        session_id = input("\n📎 Enter session ID: ").strip()
+        if not session_id:
+            print("❌ Please enter a session ID.")
+            return
+        
+        # Check if course exists
+        status = self.teaching_agent.get_course_status(session_id)
+        
+        if "error" in status:
+            print(f"❌ {status['error']}")
+            return
+        
+        print(f"\n📌 Course: {status.get('main_topic', 'Unknown')}")
+        print(f"📝 Total Lessons: {status.get('total_lessons', 0)}")
+        print(f"📄 Text Files: {len(status.get('text_files', []))}")
+        print(f"🎧 Audio Files: {len(status.get('audio_files', []))}")
+        
+        # Show recent phases
+        if status.get('phases'):
+            print("\n📚 Generated Phases:")
+            for phase in status['phases']:
+                print(f"   • Phase {phase.get('phase_number')}: {phase.get('phase_title')}")
+                print(f"     Lessons: {len(phase.get('lessons', []))}")
+    
     async def run_model_info(self):
         """Show model information"""
         print("\n" + "="*60)
@@ -552,16 +744,18 @@ class JinvexaApp:
         
         while True:
             print("\n📚 Choose mode:")
-            print("  1. Goal-Based Learning")
-            print("  2. Reference-Based Learning")
-            print("  3. View Stats")
-            print("  4. View Sessions")
-            print("  5. Continue Conversation")
-            print("  6. Model Info")
-            print("  7. Exit")
+            print("  1. Goal-Based Learning (Discovery)")
+            print("  2. Reference-Based Learning (Discovery)")
+            print("  3. Teaching Layer (Generate Course)")
+            print("  4. View Stats")
+            print("  5. View Sessions")
+            print("  6. Continue Conversation")
+            print("  7. Teaching Status")
+            print("  8. Model Info")
+            print("  9. Exit")
             
             try:
-                choice = input("\nEnter choice (1-7): ").strip()
+                choice = input("\nEnter choice (1-9): ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\n👋 Goodbye!")
                 break
@@ -571,26 +765,18 @@ class JinvexaApp:
             elif choice == "2":
                 await self.run_mode_2_reference()
             elif choice == "3":
-                await self.run_show_stats()
+                await self.run_mode_teaching()
             elif choice == "4":
-                await self.run_view_sessions()
+                await self.run_show_stats()
             elif choice == "5":
-                user_id = input("\n👤 Enter user ID (default: user_1): ").strip() or "user_1"
-                sessions = self.memory.get_user_sessions(user_id)
-                if sessions:
-                    print("\n📋 Recent sessions:")
-                    for i, s in enumerate(sessions[:5], 1):
-                        print(f"  {i}. {s.session_id[:20]}... ({s.mode}) - {s.created_at[:19]}")
-                    session_num = input("\nEnter session number: ")
-                    if session_num.isdigit():
-                        idx = int(session_num) - 1
-                        if 0 <= idx < len(sessions):
-                            await self._continue_conversation(sessions[idx].session_id)
-                else:
-                    print("❌ No sessions found.")
+                await self.run_view_sessions()
             elif choice == "6":
-                await self.run_model_info()
+                await self._handle_continue_conversation()
             elif choice == "7":
+                await self.run_teaching_status()
+            elif choice == "8":
+                await self.run_model_info()
+            elif choice == "9":
                 print("\n👋 Thank you for using Jinvexa! Good luck with your learning journey!")
                 break
             else:

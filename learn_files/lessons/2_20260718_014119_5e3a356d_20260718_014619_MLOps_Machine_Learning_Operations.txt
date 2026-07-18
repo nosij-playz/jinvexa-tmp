@@ -1,0 +1,93 @@
+Session ID: 2_20260718_014119_5e3a356d
+Topic: MLOps (Machine Learning Operations)
+Phase: 📚 Building Skills: Computer Vision, MLOps (Machine Learning Operations) & Data Engineering & Preprocessing
+Generated: 2026-07-18T01:46:19.870833
+============================================================
+
+# Lesson: Introduction to MLOps (Machine Learning Operations)
+
+## 1. Introduction: The "Gap" in AI
+Imagine you’ve spent weeks building a brilliant Machine Learning (ML) model on your laptop. It has 95% accuracy, and it works perfectly on your local dataset. You are thrilled! You hand the code to the software engineering team and say, *"Here, put this into our app."*
+
+**Two weeks later, the app crashes.** Why? Because the real-world data is different from your training data, the server can't handle the model's size, and no one knows how to update the model without breaking the whole system.
+
+This is the **"ML Gap."** Building a model is the easy part; keeping that model healthy, scalable, and reliable in the real world is the hard part. 
+
+**That is where MLOps comes in.** MLOps is the bridge between the experimental world of Data Science and the disciplined world of Software Engineering. It ensures that AI doesn't just stay as a "cool demo" but becomes a reliable product.
+
+---
+
+## 2. Core Concepts
+To understand MLOps, think of it as **DevOps for Machine Learning**. While DevOps focuses on code, MLOps focuses on **Code + Data + Models**.
+
+### A. The MLOps Lifecycle
+Unlike traditional software, which is written once and updated occasionally, ML models are "living" entities. They require a continuous loop:
+1. **Data Engineering:** Collecting, cleaning, and labeling data.
+2. **Model Engineering:** Choosing an algorithm, training, and tuning.
+3. **Deployment:** Putting the model on a server where users can access it.
+4. **Monitoring:** Watching the model to see if its performance drops over time.
+5. **Retraining:** Updating the model with new data and repeating the cycle.
+
+### B. Key Pillars of MLOps (The "Big Three")
+To make this lifecycle work, we use three main strategies:
+
+#### 1. CI/CD/CT (Continuous Integration, Deployment, and Training)
+*   **CI (Integration):** Testing your code and data to make sure they work together.
+*   **CD (Deployment):** Automatically pushing the model to a production environment.
+*   **CT (Training):** This is unique to ML. It means the system automatically retrains the model when new data arrives.
+
+#### 2. Model Versioning & Tracking
+In normal coding, you use Git to version your code. In MLOps, you must version the **Data** and the **Model** too. 
+*   *Analogy:* If a chef changes a recipe (the code) but also changes the brand of flour (the data), they need to record both changes to know why the cake tastes different.
+
+#### 3. Model Monitoring & "Drift"
+Models can "decay." This is called **Model Drift**. 
+*   **Concept Drift:** The world changes. (e.g., A shopping habit model built before 2020 would fail during the COVID-19 pandemic because buying patterns shifted overnight).
+*   **Data Drift:** The input data changes. (e.g., A camera sensor degrades, and the images becoming blurrier, confusing the model).
+
+---
+
+## 3. Practical Examples
+
+### Example 1: Netflix Recommendation System
+Netflix doesn't just train one model and leave it. They use MLOps to:
+*   **Monitor:** If users stop clicking on "Suggested for You," the system flags a performance drop.
+*   **Retrain:** The system automatically pulls the last 24 hours of viewing data and updates the model.
+*   **Deploy:** The new model is rolled out to a small group of users (A/B Testing) before going global.
+
+### Example 2: Autonomous Vehicle Vision
+A self-driving car's vision system must be incredibly reliable.
+*   **Data Engineering:** They use pipelines to automatically label thousands of hours of road footage.
+*   **CI/CD:** When a researcher finds a way to better detect "stop signs," the MLOps pipeline runs a battery of safety tests before the update is pushed to the cars via an over-the-air update.
+
+---
+
+## 4. Key Takeaways
+*   **MLOps $\neq$ ML.** ML is about building the brain; MLOps is about building the body and the life-support system that keeps the brain working.
+*   **The Loop:** MLOps is a continuous cycle of Data $\rightarrow$ Train $\rightarrow$ Deploy $\rightarrow$ Monitor $\rightarrow$ Repeat.
+*   **Drift is Real:** Models degrade over time. Monitoring is not optional; it is a requirement.
+*   **Automation is King:** The goal of MLOps is to remove manual steps to reduce human error and speed up delivery.
+
+---
+
+## 5. Practice Exercise: "The Model Health Check"
+
+**Scenario:** You have deployed a model that predicts if a credit card transaction is "Fraudulent" or "Legitimate."
+
+**The Problem:** After three months, you notice that the model is missing 30% of the fraud cases it used to catch.
+
+**Your Task:** Answer the following questions to design a basic MLOps strategy for this problem:
+1. **Diagnosis:** Is this likely a case of *Model Drift* or a *Bug in the Code*? Why?
+2. **Versioning:** If you decide to retrain the model with new data, why is it important to keep a backup of the *old* model?
+3. **Automation:** Instead of manually checking the accuracy every month, what could you build to alert you the moment accuracy drops below 80%?
+
+*(Self-Correction Guide: 1. Model Drift—fraudsters change their tactics. 2. To "roll back" if the new model performs worse. 3. An automated monitoring dashboard with an alert system/email notification.)*
+
+---
+
+## 6. Next Steps
+Now that you understand the *philosophy* of MLOps, it's time to look at the *tools*. In the next modules, we will explore:
+*   **Data Pipelines:** Learning tools like Apache Airflow or Prefect.
+*   **Experiment Tracking:** Getting hands-on with **MLflow** or **Weights & Biases (W&B)**.
+*   **Containerization:** Learning **Docker** and **Kubernetes** to package your models so they run anywhere.
+*   **Model Serving:** Exploring **FastAPI** and **Triton Inference Server**.
