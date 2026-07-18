@@ -37,12 +37,30 @@ Generates full courses from learning plans with AI-driven format selection and p
 - **Manifest System**: Generates a JSON manifest with complete watch order, content types, file paths, and format reasons — enabling playlist-style consumption.
 - **Course Metadata**: Saves course metadata to session storage for status tracking and resumption.
 
-### 4. Assessment Layer (Evaluation) ❌
-**Status: Not Built Yet**
-*Planned features:*
-- Exercise Agent & Code Reviewer.
-- Project Checker for practical application.
-- Certification tracking.
+### 4. Assessment Layer (Evaluation) ✅
+**Status: Complete**
+Generates and evaluates personalized assignments from course content with AI-driven auto-configuration:
+- **Auto-Configuration**: LLM analyzes course complexity (number of lessons, content length, phases) and user profile (level, goals, past performance) to automatically determine:
+  - Number of MCQ questions (3-10)
+  - Number of written/essay questions (1-4)
+  - Difficulty level (beginner / intermediate / advanced)
+  - Passing score (60-80%)
+- **MCQ Generation**: AI generates multiple-choice questions with 4 options, correct answer index, topic tags, and explanations.
+- **Written Question Generation**: AI creates open-ended essay questions with scoring rubrics (clarity, correctness, examples).
+- **Auto-Grading**: 
+  - MCQ answers are auto-graded instantly by comparing against correct indices.
+  - Written answers are evaluated by the LLM with detailed feedback and scores.
+- **Progress Tracking**: Tracks user performance across all assignments with:
+  - Average, best, and latest scores
+  - Performance trends (improving / consistent / needs attention)
+  - Weak area identification
+  - Personalized recommendations
+- **Certificate Eligibility**: Automatically checks if a user qualifies for a certificate (3+ assignments with 70%+ average).
+- **Structured Storage**: All assignments and results organized under `learn_files/assignments/`:
+  - `sessions/` — Generated assignment JSON files
+  - `results/` — Evaluated results per user
+  - `progress/` — Progress summary files
+- **Fallback System**: If LLM configuration fails, an intelligent rule-based fallback adjusts question counts based on lesson count and content length.
 
 ### 5. Mentoring Layer (Guidance) ❌
 **Status: Not Built Yet**

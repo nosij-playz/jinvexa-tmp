@@ -60,3 +60,20 @@ class TextToSpeech:
 
         return os.path.abspath(output)
 
+    async def speak_async(self, txt, gender="female", output="speech.mp3"):
+        """Async version of speak - safe to call from within an event loop."""
+        gender = gender.lower()
+
+        if gender not in self.voices:
+            raise ValueError("Gender must be either 'male' or 'female'.")
+
+        txt = self._prepare_text(txt)
+
+        await self._generate(
+            txt,
+            self.voices[gender],
+            output
+        )
+
+        return os.path.abspath(output)
+

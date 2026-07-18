@@ -253,12 +253,10 @@ class TeachingAgent(BaseAgent):
             if not lesson_text:
                 return {"success": False, "error": "Failed to generate text"}
             
-            # Generate audio if needed (in thread pool)
+            # Generate audio if needed (directly await async method)
             audio_file = None
             if task["output_format"] == "audio":
-                audio_file = await loop.run_in_executor(
-                    self.executor,
-                    self._generate_audio_sync,
+                audio_file = await self._generate_audio_async(
                     task["session_id"],
                     task["topic"],
                     lesson_text,
@@ -344,6 +342,41 @@ Lesson:
             print(f"❌ LLM error for '{topic}': {e}")
             return self._create_fallback_lesson(topic, main_topic, user_level)
     
+    async def _generate_audio_async(self, session_id: str, topic: str, lesson_text: str, gender: str) -> Optional[str]:
+        """
+        Async audio generation (runs directly on the event loop).
+        """
+        try:
+            clean_text = self._clean_text_for_tts(lesson_text)
+            if not clean_text or len(clean_text.strip()) < 10:
+                print(f"⚠️ TTS skipped for '{topic}': text too short after cleaning")
+                return None
+
+            safe_topic = re.sub(r'[^\w\s-]', '', topic).strip().replace(' ', '_')
+            safe_topic = re.sub(r'[-\s]+', '_', safe_topic)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            audio_filename = f"{session_id}_{timestamp}_{safe_topic}_{gender}.mp3"
+            audio_filepath = self.audio_dir / audio_filename
+
+            await self.tts.speak_async(
+                txt=clean_text[:5000],
+                gender=gender,
+                output=str(audio_filepath)
+            )
+
+            # Verify file was created
+            if not audio_filepath.exists() or audio_filepath.stat().st_size == 0:
+                print(f"❌ TTS error for '{topic}': output file is empty")
+                return None
+
+            self._save_audio_metadata(session_id, topic, str(audio_filepath), gender)
+            print(f"🎧 Audio generated: {audio_filename}")
+            return str(audio_filepath)
+
+        except Exception as e:
+            print(f"❌ TTS error for '{topic}': {e}")
+            return None
+
     def _generate_audio_sync(self, session_id: str, topic: str, lesson_text: str, gender: str) -> Optional[str]:
         """
         Synchronous audio generation (for thread pool).

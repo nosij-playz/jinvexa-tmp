@@ -21,6 +21,9 @@ from Agents.KnowledgeGapAgent import KnowledgeGapAgent
 from Agents.LearningDiscoveryAgent import LearningDiscoveryAgent
 from Agents.MemoryHandler import MemoryHandler
 from Agents.TeachingAgent import TeachingAgent
+from Agents.AssignmentGeneratorAgent import AssignmentGeneratorAgent
+from Agents.AssignmentEvaluatorAgent import AssignmentEvaluatorAgent
+from Agents.AssignmentTrackerAgent import AssignmentTrackerAgent
 from Models.UserProfile import UserProfile
 
 
@@ -165,6 +168,23 @@ class JinvexaApp:
         
         # Initialize Teaching Agent
         self.teaching_agent = TeachingAgent(
+            llm_client=self.llm_client,
+            memory_handler=self.memory
+        )
+        
+        # Initialize Assignment Agents
+        self.assignment_generator = AssignmentGeneratorAgent(
+            llm_client=self.llm_client,
+            memory_handler=self.memory
+        )
+        
+        self.assignment_evaluator = AssignmentEvaluatorAgent(
+            llm_client=self.llm_client,
+            memory_handler=self.memory,
+            assignment_generator=self.assignment_generator
+        )
+        
+        self.assignment_tracker = AssignmentTrackerAgent(
             llm_client=self.llm_client,
             memory_handler=self.memory
         )
@@ -568,20 +588,30 @@ class JinvexaApp:
         print("📚 MODE 3: Teaching Layer")
         print("="*60)
         
-        # List available sessions
-        sessions = self.teaching_agent.list_available_sessions()
+        # Get user ID first
+        user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
         
-        if not sessions:
+        # List available sessions
+        all_sessions = self.teaching_agent.list_available_sessions()
+        
+        if not all_sessions:
             print("❌ No sessions with learning plans found.")
             print("   Please create a learning plan first (Mode 1 or 2).")
             return
         
-        print("\n📋 Available sessions with learning plans:")
+        # Filter sessions for this user
+        sessions = [s for s in all_sessions if s.get("user_id", "").lower() == user_id.lower()]
+        
+        if not sessions:
+            print(f"❌ No sessions found for user '{user_id}'.")
+            print("   Please create a learning plan first (Mode 1 or 2).")
+            return
+        
+        print(f"\n📋 Available sessions for '{user_id}':")
         print("-" * 50)
         for i, session in enumerate(sessions, 1):
             print(f"{i}. Session: {session['session_id'][:20]}...")
             print(f"   Topic: {session.get('main_topic', 'Unknown')}")
-            print(f"   User: {session.get('user_id', 'Unknown')}")
             print(f"   Phases: {session.get('phase_count', 0)}")
             print(f"   Total Time: {session.get('total_hours', 0)} hours")
             print()
@@ -701,6 +731,241 @@ class JinvexaApp:
             import traceback
             traceback.print_exc()
 
+    async def run_mode_assignment(self):
+        """Mode 4: Assignment Layer - Auto-configured by AI"""
+        print("\n" + "="*60)
+        print("📝 MODE 4: Assignment Layer")
+        print("="*60)
+        
+        # Get user ID
+        user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
+        
+        # List available sessions with completed courses
+        sessions = self.teaching_agent.list_available_sessions()
+        
+        if not sessions:
+            print("❌ No sessions with learning plans found.")
+            print("   Please complete a course first (Mode 3).")
+            return
+        
+        # Filter sessions that have courses generated
+        available_sessions = []
+        for session in sessions:
+            session_id = session.get("session_id", "")
+            manifest_file = Path(f"learn_files/manifests/{session_id}_manifest.json")
+            if manifest_file.exists():
+                available_sessions.append(session)
+        
+        if not available_sessions:
+            print("❌ No completed courses found.")
+            print("   Please generate a course first (Mode 3).")
+            return
+        
+        print("\n📋 Available completed courses:")
+        print("-" * 50)
+        for i, session in enumerate(available_sessions, 1):
+            print(f"{i}. Topic: {session.get('main_topic', 'Unknown')}")
+            print(f"   Session: {session['session_id'][:20]}...")
+            print(f"   Phases: {session.get('phase_count', 0)}")
+            print(f"   Total Time: {session.get('total_hours', 0)} hours")
+            print()
+        
+        # Select session
+        choice = input("\n🔍 Select course for assignment: ").strip()
+        if not choice.isdigit():
+            print("❌ Invalid selection.")
+            return
+        
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(available_sessions):
+            print("❌ Invalid session number.")
+            return
+        
+        selected_session = available_sessions[idx]
+        session_id = selected_session["session_id"]
+        
+        print(f"\n📚 Generating assignment for: {selected_session.get('main_topic', 'Unknown')}")
+        print("\n🧠 AI is analyzing the course to configure the assignment...")
+        
+        try:
+            # Generate assignment with auto-configuration
+            assignment = await self.assignment_generator.generate_assignment(
+                session_id=session_id,
+                user_id=user_id
+            )
+            
+            if "error" in assignment:
+                print(f"❌ Error: {assignment['error']}")
+                return
+            
+            # Display auto-configuration
+            config = assignment.get("configuration", {})
+            print("\n" + "="*60)
+            print("📋 ASSIGNMENT CONFIGURATION (Auto-decided by AI)")
+            print("="*60)
+            print(f"📝 MCQ Questions: {config.get('num_mcq', 5)}")
+            print(f"📝 Written Questions: {config.get('num_written', 2)}")
+            print(f"📊 Difficulty: {config.get('difficulty', 'intermediate').upper()}")
+            print(f"🎯 Passing Score: {config.get('passing_score', 70)}%")
+            print(f"💡 Reasoning: {config.get('reasoning', 'Auto-configured based on course content.')}")
+            
+            assignment_id = assignment.get("assignment_id", "")
+            mcq_questions = assignment.get("questions", {}).get("mcq", [])
+            written_questions = assignment.get("questions", {}).get("written", [])
+            
+            print(f"\n⏱️ Time Limit: {assignment.get('time_limit_minutes', 0)} minutes")
+            print(f"📝 Total Questions: {len(mcq_questions) + len(written_questions)}")
+            
+            # Display MCQ questions
+            print("\n" + "="*60)
+            print("📌 MULTIPLE CHOICE QUESTIONS")
+            print("="*60)
+            
+            user_answers = {}
+            
+            for i, q in enumerate(mcq_questions, 1):
+                print(f"\n{i}. {q.get('question', '')}")
+                print(f"   Topic: {q.get('topic', '')}")
+                for j, option in enumerate(q.get('options', [])):
+                    print(f"   {chr(65 + j)}. {option}")
+                print()
+                
+                while True:
+                    answer = input(f"Your answer ({chr(65)}-{chr(65 + len(q.get('options', [])) - 1)}): ").strip().upper()
+                    if answer and answer in [chr(65 + i) for i in range(len(q.get('options', [])))]:
+                        user_answers[q.get('id', f"mcq_{i}")] = ord(answer) - 65
+                        break
+                    else:
+                        print(f"❌ Invalid. Please enter {chr(65)}-{chr(65 + len(q.get('options', [])) - 1)}")
+            
+            # Display written questions
+            print("\n" + "="*60)
+            print("📌 WRITTEN/ESSAY QUESTIONS")
+            print("="*60)
+            
+            for i, q in enumerate(written_questions, 1):
+                print(f"\n{i}. {q.get('question', '')}")
+                print(f"   Topic: {q.get('topic', '')}")
+                print(f"   Max Score: {q.get('max_score', 10)}")
+                print()
+                print("   Enter your answer (type 'skip' to skip this question):")
+                answer = input("   Answer: ").strip()
+                
+                if answer.lower() == 'skip':
+                    user_answers[q.get('id', f"written_{i}")] = ""
+                else:
+                    user_answers[q.get('id', f"written_{i}")] = answer
+            
+            print("\n🔄 Evaluating your answers...")
+            
+            # Evaluate assignment
+            result = await self.assignment_evaluator.evaluate_assignment(
+                assignment_id=assignment_id,
+                user_answers=user_answers,
+                user_id=user_id
+            )
+            
+            if "error" in result:
+                print(f"❌ Error: {result['error']}")
+                return
+            
+            # Display results
+            print("\n" + "="*60)
+            print("📊 ASSIGNMENT RESULTS")
+            print("="*60)
+            
+            total = result.get("scores", {}).get("total", {})
+            mcq = result.get("scores", {}).get("mcq", {})
+            written = result.get("scores", {}).get("written", {})
+            
+            print(f"\n📌 Overall Score: {total.get('percentage', 0)}%")
+            print(f"📊 Grade: {total.get('grade', 'N/A')}")
+            print(f"✅ MCQ: {mcq.get('correct', 0)}/{mcq.get('total', 0)} ({mcq.get('percentage', 0)}%)")
+            print(f"📝 Written: {written.get('score', 0)}/{written.get('total', 0)} ({written.get('percentage', 0)}%)")
+            print(f"🎯 Passing Score: {assignment.get('passing_score', 70)}%")
+            print(f"📈 Status: {'✅ PASSED' if total.get('percentage', 0) >= assignment.get('passing_score', 70) else '❌ NEEDS REVIEW'}")
+            
+            # Show feedback
+            feedback = result.get("feedback", {})
+            print(f"\n💬 Feedback: {feedback.get('overall', '')}")
+            print(f"📚 Recommendation: {feedback.get('recommendation', '')}")
+            
+            # Show wrong answers
+            wrong_answers = result.get("wrong_answers", [])
+            if wrong_answers:
+                print("\n❌ Incorrect Answers:")
+                for wa in wrong_answers[:3]:
+                    if wa.get("type") == "mcq":
+                        print(f"   • {wa.get('question', '')}")
+                        print(f"     Correct: {wa.get('correct_answer', '')}")
+                        print(f"     Your answer: {wa.get('user_answer', '')}")
+                        print(f"     Explanation: {wa.get('explanation', '')}")
+                    else:
+                        print(f"   • {wa.get('question', '')}")
+                        print(f"     Score: {wa.get('score', 0)}/{wa.get('max_score', 10)}")
+                        print(f"     Feedback: {wa.get('feedback', '')}")
+            
+            # Show improvement areas
+            improvement_areas = result.get("improvement_areas", [])
+            if improvement_areas:
+                print("\n📚 Areas for Improvement:")
+                for area in improvement_areas[:3]:
+                    print(f"   • {area}")
+            
+            # Save progress
+            self.assignment_tracker.save_progress_summary(user_id)
+            print(f"\n💾 Progress saved for user: {user_id}")
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def run_mode_progress(self):
+        """Mode 5: View progress"""
+        print("\n" + "="*60)
+        print("📊 PROGRESS TRACKING")
+        print("="*60)
+        
+        user_id = input("\n👤 Enter your user ID (default: user_1): ").strip() or "user_1"
+        
+        progress = self.assignment_tracker.get_user_progress(user_id)
+        
+        print(f"\n📊 Progress for: {user_id}")
+        print("-" * 40)
+        print(f"📚 Total Assignments: {progress.get('total_assignments', 0)}")
+        print(f"📈 Average Score: {progress.get('average_score', 0)}%")
+        print(f"🏆 Best Score: {progress.get('best_score', 0)}%")
+        print(f"🎯 Latest Score: {progress.get('latest_score', 0)}%")
+        print(f"📊 Latest Grade: {progress.get('latest_grade', 'N/A')}")
+        print(f"📉 Trend: {progress.get('trend', 'Insufficient data')}")
+        print(f"⭐ Performance: {progress.get('performance', 'No data')}")
+        
+        # Show certificate eligibility
+        eligibility = self.assignment_tracker.get_certificate_eligibility(user_id)
+        print(f"\n🎓 Certificate Status: {eligibility.get('status', 'N/A')}")
+        if eligibility.get('eligible'):
+            print("   ✅ You are eligible for a certificate!")
+        else:
+            print(f"   Requirements: {eligibility.get('requirement', '')}")
+        
+        # Show history
+        history = progress.get("history", [])
+        if history:
+            print("\n📋 Recent Assignments:")
+            for h in history[:5]:
+                date = h.get("evaluated_at", "")[:16] if h.get("evaluated_at") else "Unknown"
+                score = h.get("scores", {}).get("total", {}).get("percentage", 0)
+                grade = h.get("scores", {}).get("total", {}).get("grade", "N/A")
+                print(f"   • {date}: {score}% ({grade})")
+        
+        # Recommendations
+        recommendations = progress.get("recommendations", [])
+        if recommendations:
+            print("\n💡 Recommendations:")
+            for rec in recommendations[:3]:
+                print(f"   • {rec}")
+
     async def run_teaching_status(self):
         """View teaching status for a session"""
         print("\n" + "="*60)
@@ -747,15 +1012,17 @@ class JinvexaApp:
             print("  1. Goal-Based Learning (Discovery)")
             print("  2. Reference-Based Learning (Discovery)")
             print("  3. Teaching Layer (Generate Course)")
-            print("  4. View Stats")
-            print("  5. View Sessions")
-            print("  6. Continue Conversation")
-            print("  7. Teaching Status")
-            print("  8. Model Info")
-            print("  9. Exit")
+            print("  4. Assignment Layer (Take Assignment)")
+            print("  5. View Progress")
+            print("  6. View Stats")
+            print("  7. View Sessions")
+            print("  8. Continue Conversation")
+            print("  9. Teaching Status")
+            print(" 10. Model Info")
+            print(" 11. Exit")
             
             try:
-                choice = input("\nEnter choice (1-9): ").strip()
+                choice = input("\nEnter choice (1-11): ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\n👋 Goodbye!")
                 break
@@ -767,16 +1034,20 @@ class JinvexaApp:
             elif choice == "3":
                 await self.run_mode_teaching()
             elif choice == "4":
-                await self.run_show_stats()
+                await self.run_mode_assignment()
             elif choice == "5":
-                await self.run_view_sessions()
+                await self.run_mode_progress()
             elif choice == "6":
-                await self._handle_continue_conversation()
+                await self.run_show_stats()
             elif choice == "7":
-                await self.run_teaching_status()
+                await self.run_view_sessions()
             elif choice == "8":
-                await self.run_model_info()
+                await self._handle_continue_conversation()
             elif choice == "9":
+                await self.run_teaching_status()
+            elif choice == "10":
+                await self.run_model_info()
+            elif choice == "11":
                 print("\n👋 Thank you for using Jinvexa! Good luck with your learning journey!")
                 break
             else:
