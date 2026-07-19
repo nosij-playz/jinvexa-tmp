@@ -313,48 +313,105 @@ JSON:
         
         for detail in mcq_results.get("details", []):
             if not detail.get("is_correct", True):
+                topic = detail.get("topic", "")
+                if not topic or topic == "Unknown":
+                    topic = "General Concept"
+                
+                # Get the correct answer text
+                correct_idx = detail.get("correct_answer", -1)
+                options = detail.get("options", [])
+                correct_text = options[correct_idx] if 0 <= correct_idx < len(options) else str(correct_idx)
+                
                 wrong.append({
                     "type": "mcq",
                     "question": detail.get("question", ""),
                     "user_answer": detail.get("user_answer", ""),
-                    "correct_answer": detail.get("correct_answer", ""),
-                    "explanation": detail.get("explanation", "")
+                    "correct_answer": correct_text,
+                    "explanation": detail.get("explanation", ""),
+                    "topic": topic
                 })
         
         for detail in written_results.get("details", []):
             if detail.get("score", 0) < detail.get("max_score", 10) * 0.6:
+                topic = detail.get("topic", "")
+                if not topic or topic == "Unknown":
+                    topic = "Written Response"
+                
                 wrong.append({
                     "type": "written",
                     "question": detail.get("question", ""),
                     "score": detail.get("score", 0),
                     "max_score": detail.get("max_score", 10),
-                    "feedback": detail.get("feedback", "")
+                    "feedback": detail.get("feedback", ""),
+                    "topic": topic
                 })
         
         return wrong
 
     def _get_improvement_areas(self, mcq_results: Dict, written_results: Dict) -> List[str]:
-        """Get areas for improvement."""
+        """
+        Get areas for improvement with proper topic names.
+        """
         areas = []
+        topic_count = {}
         
         # Check MCQ weak areas
         for detail in mcq_results.get("details", []):
             if not detail.get("is_correct", True):
-                topic = detail.get("topic", "Unknown")
-                if topic not in areas:
-                    areas.append(f"Review: {topic}")
+                topic = detail.get("topic", "")
+                
+                # If topic is empty or "Unknown", try to extract from question
+                if not topic or topic == "Unknown":
+                    question = detail.get("question", "")
+                    # Try to extract topic from question context
+                    for word in question.split():
+                        if len(word) > 5 and word.istitle():
+                            topic = word
+                            break
+                    if not topic or topic == "Unknown":
+                        topic = "General Concept"
+                
+                if topic not in topic_count:
+                    topic_count[topic] = 0
+                topic_count[topic] += 1
         
         # Check written weak areas
         for detail in written_results.get("details", []):
             if detail.get("score", 0) < detail.get("max_score", 10) * 0.6:
-                topic = detail.get("topic", "Unknown")
-                if f"Review: {topic}" not in areas:
-                    areas.append(f"Deepen understanding: {topic}")
+                topic = detail.get("topic", "")
+                
+                if not topic or topic == "Unknown":
+                    question = detail.get("question", "")
+                    # Try to extract topic from question
+                    for word in question.split():
+                        if len(word) > 5 and word.istitle():
+                            topic = word
+                            break
+                    if not topic or topic == "Unknown":
+                        topic = "Written Response"
+                
+                if topic not in topic_count:
+                    topic_count[topic] = 0
+                topic_count[topic] += 1
         
+        # Sort by frequency and create recommendations
+        sorted_topics = sorted(topic_count.items(), key=lambda x: x[1], reverse=True)
+        
+        for topic, count in sorted_topics[:5]:
+            if topic and topic != "Unknown" and topic != "General Concept":
+                areas.append(f"Review: {topic} ({count} incorrect)")
+            else:
+                # Try to make it more meaningful
+                if topic == "General Concept":
+                    areas.append("Review: Core Concepts (multiple incorrect)")
+                else:
+                    areas.append(f"Review: {topic}")
+        
+        # If no areas found, add a default message
         if not areas:
             areas.append("Great job! No major areas for improvement.")
         
-        return areas[:5]  # Limit to 5
+        return areas[:5]
 
     def _save_result(self, user_id: str, assignment_id: str, result: Dict):
         """Save evaluation result to file."""

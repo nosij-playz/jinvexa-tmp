@@ -297,14 +297,15 @@ JSON:
         difficulty: str
     ) -> List[Dict]:
         """
-        Generate MCQ questions using LLM.
+        Generate MCQ questions using LLM with proper topic assignment.
         """
-        # Prepare lesson summaries
+        # Prepare lesson summaries with clear topic mapping
         lesson_summaries = []
-        for lesson in lesson_contents[:5]:  # Limit to 5 lessons to avoid token overflow
+        for lesson in lesson_contents[:5]:
             topic = lesson.get("topic", "")
-            content = lesson.get("content", "")[:2000]  # Limit content
-            lesson_summaries.append(f"Topic: {topic}\nContent: {content[:500]}...")
+            phase = lesson.get("phase", "")
+            content = lesson.get("content", "")[:2000]
+            lesson_summaries.append(f"Topic: {topic}\nPhase: {phase}\nContent: {content[:500]}...")
         
         combined_content = "\n\n".join(lesson_summaries)
         
@@ -316,11 +317,13 @@ Course Content:
 
 Difficulty Level: {difficulty}
 
+CRITICAL: For each question, you MUST include the exact topic name from the content above.
+
 For each question, provide:
 1. A clear question
 2. 4 options (A, B, C, D)
-3. The correct answer (A, B, C, or D)
-4. The topic it relates to
+3. The correct answer index (0-3)
+4. The EXACT topic name from the content (this is MANDATORY)
 5. Brief explanation of why the answer is correct
 
 Return ONLY a JSON array in this exact format:
@@ -330,7 +333,7 @@ Return ONLY a JSON array in this exact format:
         "question": "Your question here?",
         "options": ["Option A", "Option B", "Option C", "Option D"],
         "correct_answer": 0,
-        "topic": "Related Topic",
+        "topic": "EXACT TOPIC NAME FROM CONTENT",
         "explanation": "Why this is correct"
     }}
 ]
@@ -346,11 +349,24 @@ JSON:
             if json_match:
                 questions = json.loads(json_match.group())
                 if isinstance(questions, list):
+                    # Ensure each question has a topic
+                    for q in questions:
+                        if not q.get("topic") or q.get("topic") == "Unknown":
+                            # Try to infer topic from question content
+                            q_text = q.get("question", "").lower()
+                            for lesson in lesson_contents:
+                                topic = lesson.get("topic", "")
+                                if topic and topic.lower() in q_text:
+                                    q["topic"] = topic
+                                    break
+                            if not q.get("topic"):
+                                # Use first topic as fallback
+                                q["topic"] = lesson_contents[0].get("topic", "General") if lesson_contents else "General"
                     return questions[:num_questions]
         except Exception as e:
             print(f"❌ MCQ generation error: {e}")
         
-        # Fallback questions if LLM fails
+        # Fallback questions with proper topics
         return self._fallback_mcq_questions(lesson_contents, num_questions)
 
     async def _generate_written_questions(
@@ -415,9 +431,12 @@ JSON:
         return self._fallback_written_questions(lesson_contents, num_questions)
 
     def _fallback_mcq_questions(self, lesson_contents: List[Dict], num_questions: int) -> List[Dict]:
-        """Fallback MCQ questions."""
+        """Fallback MCQ questions with proper topics."""
         questions = []
-        topics = [l.get("topic", "Unknown") for l in lesson_contents if l.get("topic")]
+        topics = [l.get("topic", "General") for l in lesson_contents if l.get("topic")]
+        
+        if not topics:
+            topics = ["General"]
         
         for i in range(min(num_questions, len(topics))):
             topic = topics[i % len(topics)]
@@ -427,7 +446,7 @@ JSON:
                 "options": ["Option A - Correct", "Option B", "Option C", "Option D"],
                 "correct_answer": 0,
                 "topic": topic,
-                "explanation": "This is the fundamental concept of the topic."
+                "explanation": f"This is the fundamental concept of {topic}."
             })
         
         return questions
@@ -452,6 +471,37 @@ JSON:
             })
         
         return questions
+
+    def _extract_topics_from_lessons(self, lesson_contents: List[Dict]) -> List[str]:
+        """
+        Extract unique topics from lesson contents with fallback.
+        """
+        topics = []
+        
+        for lesson in lesson_contents:
+            topic = lesson.get("topic", "")
+            if topic and topic not in topics:
+                topics.append(topic)
+        
+        # If no topics found, try to extract from content
+        if not topics:
+            for lesson in lesson_contents:
+                content = lesson.get("content", "")
+                # Look for common topic patterns
+                lines = content.split('\n')[:20]
+                for line in lines:
+                    if '#' in line:  # Markdown headers
+                        clean = re.sub(r'#+\s*', '', line).strip()
+                        if clean and len(clean) < 50 and clean not in topics:
+                            topics.append(clean)
+                            break
+                    if 'Topic:' in line:
+                        clean = line.replace('Topic:', '').strip()
+                        if clean and clean not in topics:
+                            topics.append(clean)
+                            break
+        
+        return topics if topics else ["General"]
 
     def _calculate_time_limit(self, num_mcq: int, num_written: int) -> int:
         """Calculate time limit based on question count."""

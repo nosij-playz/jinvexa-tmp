@@ -917,7 +917,13 @@ class JinvexaApp:
             if improvement_areas:
                 print("\n📚 Areas for Improvement:")
                 for area in improvement_areas[:3]:
-                    print(f"   • {area}")
+                    if "Review:" in area:
+                        print(f"   • {area}")
+                    else:
+                        print(f"   • Review: {area}")
+            else:
+                print("\n📚 Areas for Improvement:")
+                print("   • No specific areas identified. Great job!")
             
             # Save progress
             self.assignment_tracker.save_progress_summary(user_id)
