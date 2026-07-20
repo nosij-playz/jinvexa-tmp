@@ -1618,6 +1618,7 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         """
         
         # Load or create profile
+        self.log_reasoning("Loading user profile...", f"User: {user_id}", "thinking")
         if not user_profile and self.memory:
             user_profile = self.memory.load_profile(user_id)
         if not user_profile:
@@ -1634,8 +1635,11 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             session_id = f"{user_id}_{datetime.now().timestamp()}"
         
         # Extract concepts from goal using LLM
+        self.log_reasoning("Analyzing user request...", f"User wants to learn: {goal_statement}", "thinking")
+        self.log_reasoning("Extracting concepts...", "Using LLM to identify main topics and subtopics", "thinking")
         self._log(f"Analyzing goal: {goal_statement}")
         concepts = await self._extract_concepts_from_goal(goal_statement)
+        self.log_reasoning("Concepts extracted", f"Found: {concepts.get('main_topic', 'Unknown')} with {len(concepts.get('subtopics', []))} subtopics", "success")
         
         # Initialize session with interactive state
         self.sessions[session_id] = {
@@ -1655,12 +1659,16 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         }
         
         # Generate dynamic questions using LLM
+        self.log_reasoning("Generating personalized questions...", "Creating questions based on your profile", "thinking")
         questions = await self._generate_dynamic_questions(session_id, concepts, user_profile)
         self.sessions[session_id]["questions"] = questions
+        self.log_reasoning("Questions ready", f"Generated {len(questions)} questions for you", "success")
         
         # Build knowledge graph
+        self.log_reasoning("Building knowledge graph...", "Mapping dependencies between concepts", "thinking")
         knowledge_graph = await self._build_knowledge_graph(concepts)
         self.sessions[session_id]["knowledge_graph"] = knowledge_graph
+        self.log_reasoning("Knowledge graph ready", f"Created {len(knowledge_graph.nodes) if knowledge_graph else 0} nodes with dependencies", "success")
         
         # Create intro
         main_topic = concepts.get("main_topic", "this topic")
@@ -1701,6 +1709,7 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         """
         
         # Load or create profile
+        self.log_reasoning("Loading user profile...", f"User: {user_id}", "thinking")
         if not user_profile and self.memory:
             user_profile = self.memory.load_profile(user_id)
         if not user_profile:
@@ -1717,15 +1726,20 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
             session_id = f"{user_id}_{datetime.now().timestamp()}"
         
         # Extract data from source
+        self.log_reasoning("Extracting source content...", f"Source: {source}", "thinking")
+        self.log_reasoning("Parsing content...", "Extracting text from the provided source", "thinking")
         self._log(f"Extracting data from: {source}")
         extracted_data = await self._extract_data(source)
+        self.log_reasoning("Content extracted", f"Type: {extracted_data.get('type', 'unknown')}", "success")
         
         # Get text content
         text_content = self._get_text_from_extracted(extracted_data)
         
         # Extract concepts
+        self.log_reasoning("Extracting concepts...", "Using LLM to identify main topics from content", "thinking")
         self._log("Extracting concepts...")
         concepts = await self._extract_concepts(text_content, source)
+        self.log_reasoning("Concepts extracted", f"Found: {concepts.get('main_topic', 'Unknown')} with {len(concepts.get('subtopics', []))} subtopics", "success")
         
         # Initialize session with interactive state
         self.sessions[session_id] = {
@@ -1747,14 +1761,18 @@ Let me ask you a few questions to help me build the perfect curriculum for you.
         }
         
         # Build knowledge graph
+        self.log_reasoning("Building knowledge graph...", "Mapping dependencies between concepts", "thinking")
         knowledge_graph = await self._build_knowledge_graph(concepts)
         self.sessions[session_id]["knowledge_graph"] = knowledge_graph
+        self.log_reasoning("Knowledge graph ready", f"Created {len(knowledge_graph.nodes) if knowledge_graph else 0} nodes with dependencies", "success")
         
         # Generate dynamic questions using LLM (based on the extracted content)
+        self.log_reasoning("Generating personalized questions...", "Creating questions based on extracted content", "thinking")
         questions = await self._generate_dynamic_questions_for_reference(
             session_id, concepts, user_profile, extracted_data
         )
         self.sessions[session_id]["questions"] = questions
+        self.log_reasoning("Questions ready", f"Generated {len(questions)} questions for you", "success")
         
         # Create intro with source info
         main_topic = concepts.get("main_topic", "this topic")

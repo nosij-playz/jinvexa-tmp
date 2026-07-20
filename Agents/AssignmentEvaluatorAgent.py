@@ -59,13 +59,18 @@ class AssignmentEvaluatorAgent(BaseAgent):
         written_questions = assignment.get("questions", {}).get("written", [])
         
         # Evaluate MCQ answers
+        self.log_reasoning("Starting evaluation...", f"Evaluating assignment: {assignment_id[:20]}...", "thinking")
+        self.log_reasoning("Checking MCQ answers...", f"Checking {len(mcq_questions)} multiple-choice questions", "thinking")
         mcq_results = self._evaluate_mcq(mcq_questions, user_answers)
+        self.log_reasoning("MCQ evaluation complete", f"Score: {mcq_results.get('correct', 0)}/{mcq_results.get('total', 0)}", "success")
         
         # Evaluate written answers
+        self.log_reasoning("Evaluating written answers...", f"Using LLM to grade {len(written_questions)} written answers", "thinking")
         written_results = await self._evaluate_written(
             written_questions, 
             user_answers
         )
+        self.log_reasoning("Written evaluation complete", f"Score: {written_results.get('score', 0)}/{written_results.get('total', 0)}", "success")
         
         # Calculate scores
         total_score, max_score, grade = self._calculate_scores(
@@ -104,6 +109,8 @@ class AssignmentEvaluatorAgent(BaseAgent):
         
         # Save result
         self._save_result(user_id, assignment_id, result)
+        
+        self.log_reasoning("Evaluation complete", f"Grade: {grade}, Score: {round((total_score / max_score) * 100, 2) if max_score > 0 else 0}%", "success")
         
         return result
 
@@ -414,26 +421,5 @@ JSON:
         return areas[:5]
 
     def _save_result(self, user_id: str, assignment_id: str, result: Dict):
-        """Save evaluation result to file."""
-        user_dir = self.results_dir / user_id
-        user_dir.mkdir(exist_ok=True)
-        
-        result_file = user_dir / f"{assignment_id}_result.json"
-        with open(result_file, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-        
-        # Also update user profile in memory
-        if self.memory:
-            profile = self.memory.load_profile(user_id)
-            if profile:
-                if not hasattr(profile, 'assignments'):
-                    profile.assignments = []
-                
-                profile.assignments.append({
-                    "assignment_id": assignment_id,
-                    "score": result.get("scores", {}).get("total", {}).get("percentage", 0),
-                    "grade": result.get("scores", {}).get("total", {}).get("grade", "N/A"),
-                    "date": datetime.now().isoformat()
-                })
-                
-                self.memory.save_profile(profile)
+        """Save evaluation result to file. Delegates to MemoryHandler."""
+        self.memory.save_assignment_result(user_id, assignment_id, result)

@@ -86,39 +86,9 @@ class TeachingAgent(BaseAgent):
     
     def list_available_sessions(self) -> List[Dict]:
         """List all sessions that have learning plans"""
-        sessions = []
-        
         if self.memory:
-            session_dir = self.memory.storage_dir / "sessions"
-            if session_dir.exists():
-                for file_path in session_dir.glob("*.json"):
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        
-                        learning_plan = data.get('learning_plan')
-                        if learning_plan:
-                            if isinstance(learning_plan, str):
-                                try:
-                                    learning_plan = json.loads(learning_plan)
-                                except:
-                                    pass
-                            
-                            sessions.append({
-                                "session_id": data.get('session_id', ''),
-                                "user_id": data.get('user_id', ''),
-                                "mode": data.get('mode', ''),
-                                "created_at": data.get('created_at', ''),
-                                "main_topic": learning_plan.get('main_topic', 'Unknown'),
-                                "goal": learning_plan.get('goal', ''),
-                                "total_hours": learning_plan.get('estimated_time_hours', 0),
-                                "phase_count": len(learning_plan.get('roadmap', [])),
-                                "learning_plan": learning_plan
-                            })
-                    except Exception as e:
-                        print(f"⚠️ Error loading session: {e}")
-        
-        return sessions
+            return self.memory.list_sessions_with_plans()
+        return []
     
     async def generate_course_from_session(
         self,
@@ -129,6 +99,7 @@ class TeachingAgent(BaseAgent):
         LLM decides format for each topic.
         """
         # Get session data
+        self.log_reasoning("Starting course generation...", f"Loading session: {session_id[:20]}...", "thinking")
         session_data = self._get_session_data(session_id)
         if not session_data:
             return {"error": f"Session {session_id} not found or has no learning plan"}
@@ -146,13 +117,17 @@ class TeachingAgent(BaseAgent):
         if not roadmap:
             return {"error": "No roadmap found in learning plan"}
         
+        self.log_reasoning("Session loaded", f"Course: {main_topic} with {len(roadmap)} phases", "success")
+        
         # Get user profile
         user_profile = None
         if self.memory:
             user_profile = self.memory.load_profile(session_data.get("user_id", ""))
         
         # First, let LLM decide the format for each topic
+        self.log_reasoning("AI deciding formats...", "Analyzing each topic to choose best format (text/audio)", "thinking")
         format_decisions = await self._decide_formats(roadmap, main_topic, user_profile)
+        self.log_reasoning("Format decisions made", f"{len(format_decisions)} topics analyzed", "success")
         
         # Prepare all lesson tasks
         lesson_tasks = []
@@ -184,6 +159,7 @@ class TeachingAgent(BaseAgent):
                 })
         
         # Generate lessons in parallel using multithreading
+        self.log_reasoning("Generating lessons...", f"Using {self.executor._max_workers} parallel threads for {len(lesson_tasks)} lessons", "thinking")
         print(f"\n🚀 Generating {len(lesson_tasks)} lessons in parallel...")
         
         # Run tasks in parallel
@@ -226,6 +202,8 @@ class TeachingAgent(BaseAgent):
         # Build manifest with proper watch order
         manifest = self._build_manifest(course_content)
         course_content["manifest"] = manifest
+        
+        self.log_reasoning("Course generation complete", f"Generated {course_content['total_lessons']} lessons across {len(course_content['phases'])} phases", "success")
         
         # Save manifest
         self._save_manifest(session_id, manifest, main_topic)
@@ -406,22 +384,9 @@ Lesson:
     def _save_text_lesson_sync(self, session_id: str, topic: str, phase_title: str, lesson_text: str) -> str:
         """
         Synchronous text lesson saving (for thread pool).
+        Delegates to MemoryHandler.
         """
-        safe_topic = re.sub(r'[^\w\s-]', '', topic).strip().replace(' ', '_')
-        safe_topic = re.sub(r'[-\s]+', '_', safe_topic)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{session_id}_{timestamp}_{safe_topic}.txt"
-        filepath = self.lessons_dir / filename
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Session ID: {session_id}\n")
-            f.write(f"Topic: {topic}\n")
-            f.write(f"Phase: {phase_title}\n")
-            f.write(f"Generated: {datetime.now().isoformat()}\n")
-            f.write("="*60 + "\n\n")
-            f.write(lesson_text)
-        
-        return str(filepath)
+        return self.memory.save_lesson(session_id, topic, phase_title, lesson_text)
     
     def _build_manifest(self, course_content: Dict) -> List[Dict]:
         """
@@ -461,43 +426,9 @@ Lesson:
     def _save_manifest(self, session_id: str, manifest: List[Dict], main_topic: str):
         """
         Save the manifest JSON file.
+        Delegates to MemoryHandler.
         """
-        manifest_data = {
-            "session_id": session_id,
-            "main_topic": main_topic,
-            "generated_at": datetime.now().isoformat(),
-            "total_lessons": len(manifest),
-            "watch_order": manifest
-        }
-        
-        manifest_file = self.manifest_dir / f"{session_id}_manifest.json"
-        with open(manifest_file, 'w', encoding='utf-8') as f:
-            json.dump(manifest_data, f, indent=2, ensure_ascii=False)
-        
-        # Also save a human-readable version
-        readable_file = self.manifest_dir / f"{session_id}_watch_order.txt"
-        with open(readable_file, 'w', encoding='utf-8') as f:
-            f.write(f"Course: {main_topic}\n")
-            f.write(f"Session: {session_id}\n")
-            f.write(f"Generated: {datetime.now().isoformat()}\n")
-            f.write("="*60 + "\n\n")
-            f.write("📚 WATCH ORDER\n\n")
-            
-            for item in manifest:
-                order = item.get("order", 0)
-                phase = item.get("phase", "")
-                topic = item.get("topic", "")
-                content_type = item.get("content_type", "text")
-                gender = item.get("gender", "")
-                
-                if content_type == "audio":
-                    icon = f"🎧 ({gender})"
-                else:
-                    icon = "📄"
-                
-                f.write(f"{order}. {icon} {topic}\n")
-                f.write(f"   Phase: {phase}\n")
-                f.write(f"   Type: {content_type.upper()}\n\n")
+        self.memory.save_manifest(session_id, manifest, main_topic)
     
     # ==================== FORMAT DECISION METHODS ====================
     
@@ -557,7 +488,7 @@ Return a JSON array where each object has:
                 if isinstance(decisions, list) and len(decisions) > 0:
                     return decisions
         except Exception as e:
-            print(f"⚠️ Format decision LLM error: {e}")
+            self.logger.error(f"Format decision LLM error: {e}")
         
         return self._fallback_format_decisions(topic_list)
     
@@ -669,36 +600,12 @@ Continue to the next lesson.
 """
     
     def _save_audio_metadata(self, session_id: str, topic: str, audio_file: str, gender: str):
-        """Save audio metadata."""
-        audio_metadata_file = self.audio_dir / f"{session_id}_audio_metadata.json"
-        
-        existing = {}
-        if audio_metadata_file.exists():
-            try:
-                with open(audio_metadata_file, 'r', encoding='utf-8') as f:
-                    existing = json.load(f)
-            except:
-                pass
-        
-        if session_id not in existing:
-            existing[session_id] = []
-        
-        existing[session_id].append({
-            "topic": topic,
-            "generated_at": datetime.now().isoformat(),
-            "gender": gender,
-            "file": audio_file
-        })
-        
-        with open(audio_metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
+        """Save audio metadata. Delegates to MemoryHandler."""
+        self.memory.save_audio_metadata(session_id, topic, audio_file, gender)
     
     def _save_course_metadata(self, session_id: str, course_content: Dict):
-        """Save course metadata."""
-        course_metadata_file = self.lessons_dir / f"{session_id}_course_metadata.json"
-        
-        with open(course_metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(course_content, f, indent=2, ensure_ascii=False)
+        """Save course metadata. Delegates to MemoryHandler."""
+        self.memory.save_course_metadata(session_id, course_content)
         
         if self.memory:
             session = self.memory.get_session(session_id)
@@ -738,49 +645,15 @@ Continue to the next lesson.
     
     def get_course_status(self, session_id: str) -> Dict:
         """Get course status."""
-        manifest_file = self.manifest_dir / f"{session_id}_manifest.json"
-        if manifest_file.exists():
-            try:
-                with open(manifest_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                pass
-        return {"error": "No course found for this session"}
+        return self.memory.get_manifest(session_id) if self.memory else {"error": "No course found for this session"}
     
     def get_lesson_content(self, lesson_file: str) -> Optional[str]:
-        """Get lesson content."""
-        try:
-            filepath = Path(lesson_file)
-            if filepath.exists():
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    return f.read()
-        except:
-            pass
-        return None
+        """Get lesson content. Delegates to MemoryHandler."""
+        return self.memory.get_lesson_content(lesson_file) if self.memory else None
     
     def list_generated_lessons(self, session_id: str) -> List[Dict]:
-        """List generated lessons."""
-        lessons = []
-        if self.lessons_dir.exists():
-            for file_path in self.lessons_dir.glob(f"{session_id}*.txt"):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()[:10]
-                        metadata = {}
-                        for line in lines:
-                            if ':' in line:
-                                key, value = line.split(':', 1)
-                                metadata[key.strip()] = value.strip()
-                    
-                    lessons.append({
-                        "file": str(file_path),
-                        "topic": metadata.get('Topic', 'Unknown'),
-                        "phase": metadata.get('Phase', 'Unknown'),
-                        "generated_at": metadata.get('Generated', 'Unknown')
-                    })
-                except:
-                    pass
-        return lessons
+        """List generated lessons. Delegates to MemoryHandler."""
+        return self.memory.list_generated_lessons(session_id) if self.memory else []
     
     def __del__(self):
         """Cleanup thread pool."""

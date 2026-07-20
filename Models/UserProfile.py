@@ -13,6 +13,7 @@ class UserProfile:
     known_concepts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     learning_history: List[Dict] = field(default_factory=list)
     goals: List[str] = field(default_factory=list)
+    assignments: List[Dict] = field(default_factory=list)
     preferred_depth: str = "intermediate"  # overview, beginner, intermediate, professional, research
     preferred_language: str = "en"
     learning_pace: str = "moderate"  # slow, moderate, fast
@@ -61,6 +62,7 @@ class UserProfile:
             "known_concepts": self.known_concepts,
             "learning_history": self.learning_history,
             "goals": self.goals,
+            "assignments": self.assignments,
             "preferred_depth": self.preferred_depth,
             "preferred_language": self.preferred_language,
             "learning_pace": self.learning_pace,

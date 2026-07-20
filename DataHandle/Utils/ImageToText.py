@@ -24,63 +24,90 @@ class ImageToText:
         if self.llm_client:
             self.model = self.llm_client.model
         elif model:
-            self.model = model
-        else:
-            # Fallback to default model from environment
-            from dotenv import load_dotenv
-            load_dotenv()
-            self.model = os.getenv("OLLAMA_MODEL", "gemma4:latest")
+            import os
+            try:
+                import ollama
+            except Exception:
+                ollama = None
+            from typing import Optional, Any
+            from Config.Config import Config
 
-    def extract(self, path: str) -> str:
-        """
-        Extract text from an image using Ollama.
-        
-        Args:
-            path: Path to the image file
-            
-        Returns:
-            Extracted text from the image
-        """
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Image not found: {path}")
+            class ImageToText:
+                """
+                Image to Text extraction using Ollama.
+                Only works with vision-capable models.
+                """
 
-        ext = os.path.splitext(path)[1].lower()
-        supported = [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"]
+                def __init__(self, llm_client: Optional[Any] = None, model: Optional[str] = None):
+                    self.llm_client = llm_client
+                    self.config = Config()
         
-        if ext not in supported:
-            raise ValueError(f"Unsupported image format: {ext}")
+                    if self.llm_client:
+                        self.model = self.llm_client.model
+                    elif model:
+                        self.model = model
+                    else:
+                        self.model = self.config.get_model()
+        
+                    # Check if model supports vision
+                    if not self.config.supports_document_scan(self.model):
+                        print(f"⚠️ Warning: Model '{self.model}' does not support document scanning/OCR.")
+                        print("   Document scanning will use fallback method.")
 
-        # Use llm_client if available (preferred method)
-        if self.llm_client and hasattr(self.llm_client, 'extract_text_from_image'):
-            return self.llm_client.extract_text_from_image(path)
+                def extract(self, path: str) -> str:
+                    """
+                    Extract text from an image using Ollama.
+                    Falls back to text-only if model doesn't support vision.
+                    """
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(f"Image not found: {path}")
+
+                    ext = os.path.splitext(path)[1].lower()
+                    supported = [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"]
         
-        # If llm_client doesn't have the method, use direct ollama
-        import ollama
-        try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an OCR engine.\n"
-                            "Extract every visible piece of text exactly as written.\n"
-                            "Do not summarize.\n"
-                            "Do not explain.\n"
-                            "Do not translate.\n"
-                            "Do not correct spelling or grammar.\n"
-                            "Preserve line breaks, headings, tables, bullet points, and spacing as closely as possible.\n"
-                            "If no text is present, return exactly: NO_TEXT_FOUND"
+                    if ext not in supported:
+                        raise ValueError(f"Unsupported image format: {ext}")
+
+                    # Check if model supports vision
+                    if not self.config.supports_document_scan(self.model):
+                        print(f"ℹ️ Model '{self.model}' doesn't support vision.")
+                        print("   Please switch to a vision model (gemma4:31b-cloud or minimax-m3:cloud)")
+                        return f"NO_TEXT_FOUND - Model {self.model} doesn't support OCR"
+
+                    # Use llm_client if available
+                    if self.llm_client and hasattr(self.llm_client, 'extract_text_from_image'):
+                        return self.llm_client.extract_text_from_image(path)
+        
+                    # Direct Ollama call if available
+                    if ollama is None:
+                        print("❌ Ollama library not available in this environment.")
+                        return "NO_TEXT_FOUND"
+
+                    try:
+                        response = ollama.chat(
+                            model=self.model,
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are an OCR engine.\n"
+                                        "Extract every visible piece of text exactly as written.\n"
+                                        "Do not summarize.\n"
+                                        "Do not explain.\n"
+                                        "Do not translate.\n"
+                                        "Do not correct spelling or grammar.\n"
+                                        "Preserve line breaks, headings, tables, bullet points, and spacing as closely as possible.\n"
+                                        "If no text is present, return exactly: NO_TEXT_FOUND"
+                                    )
+                                },
+                                {
+                                    "role": "user",
+                                    "content": "Extract all text from this image.",
+                                    "images": [path]
+                                }
+                            ]
                         )
-                    },
-                    {
-                        "role": "user",
-                        "content": "Extract all text from this image.",
-                        "images": [path]
-                    }
-                ]
-            )
-            return response["message"]["content"].strip()
-        except Exception as e:
-            print(f"❌ Image extraction error: {e}")
-            return "NO_TEXT_FOUND"
+                        return response["message"]["content"].strip()
+                    except Exception as e:
+                        print(f"❌ Image extraction error: {e}")
+                        return "NO_TEXT_FOUND"

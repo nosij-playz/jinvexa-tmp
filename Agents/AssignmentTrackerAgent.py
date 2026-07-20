@@ -115,20 +115,9 @@ class AssignmentTrackerAgent(BaseAgent):
 
     def _get_user_results(self, user_id: str) -> List[Dict]:
         """
-        Get all results for a user.
+        Get all results for a user. Delegates to MemoryHandler.
         """
-        results = []
-        user_dir = self.results_dir / user_id
-        
-        if user_dir.exists():
-            for file_path in sorted(user_dir.glob("*.json"), reverse=True):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        results.append(json.load(f))
-                except:
-                    pass
-        
-        return results
+        return self.memory.get_user_results(user_id) if self.memory else []
 
     def _calculate_trend(self, scores: List[float]) -> str:
         """
@@ -208,12 +197,7 @@ class AssignmentTrackerAgent(BaseAgent):
 
     def save_progress_summary(self, user_id: str):
         """
-        Save progress summary to file.
+        Save progress summary to file. Delegates to MemoryHandler.
         """
         progress = self.get_user_progress(user_id)
-        
-        progress_file = self.progress_dir / f"{user_id}_progress.json"
-        with open(progress_file, 'w', encoding='utf-8') as f:
-            json.dump(progress, f, indent=2, ensure_ascii=False)
-        
-        return str(progress_file)
+        return self.memory.save_progress_summary(user_id, progress) if self.memory else None

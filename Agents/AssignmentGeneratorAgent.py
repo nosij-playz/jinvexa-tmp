@@ -47,28 +47,12 @@ class AssignmentGeneratorAgent(BaseAgent):
 
     def get_session_lessons(self, session_id: str) -> List[Dict]:
         """Get all lessons for a session from the manifest."""
-        manifest_file = Path(f"learn_files/manifests/{session_id}_manifest.json")
-        
-        if not manifest_file.exists():
-            return []
-        
-        try:
-            with open(manifest_file, 'r', encoding='utf-8') as f:
-                manifest = json.load(f)
-            return manifest.get("watch_order", [])
-        except:
-            return []
+        manifest = self.memory.get_manifest(session_id) if self.memory else {}
+        return manifest.get("watch_order", [])
 
     def get_lesson_content(self, lesson_file: str) -> str:
         """Get the full content of a lesson file."""
-        try:
-            filepath = Path(lesson_file)
-            if filepath.exists():
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    return f.read()
-        except:
-            pass
-        return ""
+        return self.memory.get_lesson_content(lesson_file) if self.memory else ""
 
     async def generate_assignment(
         self,
@@ -78,6 +62,8 @@ class AssignmentGeneratorAgent(BaseAgent):
         """
         Generate a complete assignment with auto-configuration.
         """
+        self.log_reasoning("Starting assignment generation...", f"Generating for session: {session_id[:20]}...", "thinking")
+        
         # Get lessons from manifest
         lessons = self.get_session_lessons(session_id)
         
@@ -110,25 +96,31 @@ class AssignmentGeneratorAgent(BaseAgent):
             user_profile = self.memory.load_profile(user_id)
         
         # Auto-configure assignment using LLM
+        self.log_reasoning("AI configuring assignment...", "Analyzing course complexity and user level", "thinking")
         config = await self._auto_configure_assignment(
             lesson_contents=lesson_contents,
             total_lessons=len(lesson_contents),
             total_content_length=total_content_length,
             user_profile=user_profile
         )
+        self.log_reasoning("Configuration complete", f"MCQ: {config.get('num_mcq')}, Written: {config.get('num_written')}, Difficulty: {config.get('difficulty')}", "success")
         
         # Generate questions using LLM
+        self.log_reasoning("Generating MCQ questions...", f"Creating {config.get('num_mcq')} multiple-choice questions", "thinking")
         mcq_questions = await self._generate_mcq_questions(
             lesson_contents, 
             config.get("num_mcq", 5),
             config.get("difficulty", "intermediate")
         )
+        self.log_reasoning("MCQ questions ready", f"Generated {len(mcq_questions)} MCQ questions", "success")
         
+        self.log_reasoning("Generating written questions...", f"Creating {config.get('num_written')} written questions", "thinking")
         written_questions = await self._generate_written_questions(
             lesson_contents,
             config.get("num_written", 2),
             config.get("difficulty", "intermediate")
         )
+        self.log_reasoning("Written questions ready", f"Generated {len(written_questions)} written questions", "success")
         
         # Build assignment
         assignment_id = f"assign_{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -509,48 +501,13 @@ JSON:
         return (num_mcq * 1) + (num_written * 5) + 5  # +5 minutes buffer
 
     def _save_assignment(self, assignment: Dict):
-        """Save assignment to file."""
-        session_id = assignment.get("session_id", "unknown")
-        assignment_id = assignment.get("assignment_id", "unknown")
-        
-        session_dir = self.sessions_dir / session_id
-        session_dir.mkdir(exist_ok=True)
-        
-        assignment_file = session_dir / f"{assignment_id}.json"
-        with open(assignment_file, 'w', encoding='utf-8') as f:
-            json.dump(assignment, f, indent=2, ensure_ascii=False)
-        
-        return str(assignment_file)
+        """Save assignment to file. Delegates to MemoryHandler."""
+        return self.memory.save_assignment(assignment)
 
     def get_assignment(self, assignment_id: str) -> Optional[Dict]:
-        """Get assignment by ID."""
-        # Search in all session directories
-        if self.sessions_dir.exists():
-            for session_dir in self.sessions_dir.iterdir():
-                if session_dir.is_dir():
-                    assignment_file = session_dir / f"{assignment_id}.json"
-                    if assignment_file.exists():
-                        with open(assignment_file, 'r', encoding='utf-8') as f:
-                            return json.load(f)
-        return None
+        """Get assignment by ID. Delegates to MemoryHandler."""
+        return self.memory.get_assignment(assignment_id) if self.memory else None
 
     def list_assignments(self, session_id: str) -> List[Dict]:
-        """List all assignments for a session."""
-        assignments = []
-        session_dir = self.sessions_dir / session_id
-        
-        if session_dir.exists():
-            for file_path in session_dir.glob("*.json"):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        assignments.append({
-                            "assignment_id": data.get("assignment_id", ""),
-                            "generated_at": data.get("generated_at", ""),
-                            "total_questions": data.get("total_questions", 0),
-                            "difficulty": data.get("difficulty", "intermediate")
-                        })
-                except:
-                    pass
-        
-        return sorted(assignments, key=lambda x: x.get("generated_at", ""), reverse=True)
+        """List all assignments for a session. Delegates to MemoryHandler."""
+        return self.memory.list_assignments(session_id) if self.memory else []

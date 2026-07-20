@@ -363,7 +363,7 @@ It then computes `total_score`, `max_score`, and a `grade`, and writes a result 
 ```
 Jinvexa/
 ├── app.py                      ← Entry point + JinvexaApp orchestrator + OllamaLLMClient
-├── main.py                     ← Alternate entry
+├── main.py                     ← Alternate entry (copy of `app.py`)
 ├── try.py                      ← Scratch/experimentation
 ├── requirements.txt
 ├── .env                        ← OLLAMA_MODEL, STORAGE_DIR, STORAGE_TYPE

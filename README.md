@@ -127,4 +127,5 @@ python app.py
 | 10 | Continue Conversation | Resume a previous discovery conversation |
 | 11 | Teaching Status | Check course generation status for a session |
 | 12 | Model Info | Display current Ollama model information |
-| 13 | Exit | Quit the application |
+| 13 | Change Model | Switch Ollama model and view capabilities |
+| 14 | Exit | Quit the application |
