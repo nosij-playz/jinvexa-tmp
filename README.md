@@ -143,4 +143,6 @@ Copyright © 2026 Jison Joseph Sebastian. All Rights Reserved.
 No use, copying, modification, or distribution is permitted without prior written permission.
 
 For licensing or collaboration requests, please contact:
-your-email@example.com
+
+Email: jisonjosephsebastian7007@gmail.com
+contact form:https://jisonjosephsebastian.work.gd/contact
