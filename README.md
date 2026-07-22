@@ -2,6 +2,10 @@
 
 Jinvexa is an AI-powered personalized learning platform that transforms how you acquire new skills. It doesn't just give you a list of links; it builds a custom "university" tailored to your goals, current knowledge, and preferred learning style.
 
+> **License Notice**
+> This project is proprietary. No use, copying, modification, or distribution is permitted without prior written permission.
+> See the [LICENSE](LICENSE) file for full terms.
+
 ## 🏗️ System Architecture
 
 The platform is built in layers, moving from raw data extraction to personalized mentorship.
@@ -129,3 +133,14 @@ python app.py
 | 12 | Model Info | Display current Ollama model information |
 | 13 | Change Model | Switch Ollama model and view capabilities |
 | 14 | Exit | Quit the application |
+
+## License
+
+This project is proprietary.
+
+Copyright © 2026 Jison Joseph Sebastian. All Rights Reserved.
+
+No use, copying, modification, or distribution is permitted without prior written permission.
+
+For licensing or collaboration requests, please contact:
+your-email@example.com
